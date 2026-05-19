@@ -183,7 +183,7 @@ def get_ticker_name_map():
     except: pass
     return name_map
 
-def run_radar_scan(chip_map=None):
+def run_radar_scan(chip_map=None, top_sectors=None, industry_db=None):
     global PROGRESS
     PROGRESS = 0
     dispo_list = get_disposition_list()
@@ -198,7 +198,7 @@ def run_radar_scan(chip_map=None):
         batch = tickers[i:i+batch_size]
         try:
             # 下載 1y 確保長度充足
-            data = yf.download(batch, period="1y", group_by='ticker', progress=False, threads=True, auto_adjust=True)
+            data = yf.download(batch, period="1y", group_by='ticker', progress=False, threads=True, auto_adjust=False)
             for ticker in batch:
                 try:
                     df = data[ticker].dropna()

@@ -10,6 +10,8 @@ import threading
 import yfinance as yf
 import json
 import os
+# 🌟 確保安裝：pip install scrapling
+from scrapling import Fetcher
 
 # 🌟 導入選股引擎
 import radar_select 
@@ -29,26 +31,24 @@ INIT_PROGRESS = {
     "percentage": 0, "status": "IDLE", "current_item": "", "total_tasks": 0, "current_task_idx": 0, "is_done": False
 }
 
-# --- 1. 產業地圖掃描邏輯 ---
-
 MAP_FILE = "industry_map.json"
+
+# --- 1. 產業地圖掃描邏輯 ---
 
 def scrape_all_yahoo_classes():
     global GLOBAL_STOCK_DB, INIT_PROGRESS
     
-    # 1. 嘗試讀取本地檔案
     if os.path.exists(MAP_FILE):
-        print(f"發現本地產業地圖 ({MAP_FILE})，正在直接載入...")
+        print(f"📁 發現本地產業地圖，正在載入...")
         try:
             with open(MAP_FILE, 'r', encoding='utf-8') as f:
                 GLOBAL_STOCK_DB = json.load(f)
             INIT_PROGRESS["percentage"] = 100
             INIT_PROGRESS["is_done"] = True
-            print(f"✅ 地圖載入完成（共 {len(GLOBAL_STOCK_DB)} 檔個股資料）。啟動初始雷達掃描...")
             threading.Thread(target=run_radar_background, daemon=True).start()
             return
-        except Exception as e:
-            print(f"讀取本地檔案失敗，重新啟動線上掃描: {e}")
+        except:
+            print(f"❌ 讀取本地檔案失敗，重新啟動線上掃描")
 
     INIT_PROGRESS["status"] = "SCANNING"
     targets = [
@@ -59,33 +59,45 @@ def scrape_all_yahoo_classes():
         {"title": "集團股", "weight_key": "group"}
     ]
     try:
-        res = requests.get("https://tw.stock.yahoo.com/class/", headers=HEADERS, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        all_h2 = soup.find_all('h2')
+        page = Fetcher.get("https://tw.stock.yahoo.com/class/")
+        all_h2 = page.css('h2')
         category_links = []
+        
         for t in targets:
-            target_h2 = next((h2 for h2 in all_h2 if t['title'] in h2.get_text()), None)
+            target_h2 = None
+            for h2 in all_h2:
+                if t['title'] in h2.text:
+                    target_h2 = h2
+                    break
+            
             if not target_h2: continue
-            parent_div = target_h2.find_parent('div').find_parent('div')
-            links = parent_div.select('ul a[href*="class-quote?"]') if parent_div else []
-            for l in links: category_links.append({"link": l, "weight_key": t['weight_key']})
+            
+            # Scrapling 的 parent() 鏈接
+            parent_div = target_h2.parent().parent()
+            # 🌟 修正點：使用 .attrib 獲取屬性
+            links = parent_div.css('ul a[href*="class-quote?"]')
+            for l in links:
+                category_links.append({
+                    "url": "https://tw.stock.yahoo.com" + l.attrib['href'],
+                    "name": l.text.strip(),
+                    "weight_key": t['weight_key']
+                })
         
         total = len(category_links)
         INIT_PROGRESS["total_tasks"] = total
         for idx, item in enumerate(category_links):
-            cat_name = item["link"].get_text(strip=True)
-            INIT_PROGRESS["current_item"] = cat_name
+            INIT_PROGRESS["current_item"] = item["name"]
             INIT_PROGRESS["percentage"] = int((idx / total) * 100)
             try:
-                url = "https://tw.stock.yahoo.com" + item["link"]['href']
-                cat_res = requests.get(url, headers=HEADERS, timeout=10)
-                ids = re.findall(r'/quote/(\d{4})', cat_res.text)
-                for sid in set(ids):
-                    if sid not in GLOBAL_STOCK_DB: GLOBAL_STOCK_DB[sid] = {"electronics": "", "concepts": "", "group": "", "basic": ""}
-                    GLOBAL_STOCK_DB[sid][item["weight_key"]] = cat_name
+                cat_page = Fetcher.get(item["url"])
+                ids = re.findall(r'/quote/(\d{4})', cat_page.content)
+                # 🌟 修正點：確保 GLOBAL_STOCK_DB 內的所有值都是 string 而非 set
+                for sid in list(set(ids)):
+                    if sid not in GLOBAL_STOCK_DB: 
+                        GLOBAL_STOCK_DB[sid] = {"electronics": "", "concepts": "", "group": "", "basic": ""}
+                    GLOBAL_STOCK_DB[sid][item["weight_key"]] = str(item["name"])
             except: continue
         
-        print(f"正在將產業地圖存檔至 {MAP_FILE}...")
         with open(MAP_FILE, 'w', encoding='utf-8') as f:
             json.dump(GLOBAL_STOCK_DB, f, ensure_ascii=False, indent=4)
 
@@ -95,12 +107,10 @@ def scrape_all_yahoo_classes():
     except Exception as e:
         print(f"地圖掃描異常: {e}")
 
-def run_radar_background(chip_map=None):
-    """
-    修改雷達啟動邏輯，現在會接收 chip_map 進行掃描
-    """
+def run_radar_background(chip_map=None, top_sectors=None, industry_db=None):
     global RADAR_RESULTS
-    RADAR_RESULTS = radar_select.run_radar_scan(chip_map)
+    # 確保傳入 radar_select 的也是清理過的資料
+    RADAR_RESULTS = radar_select.run_radar_scan(chip_map, top_sectors, industry_db or GLOBAL_STOCK_DB)
 
 # --- 2. 核心運算邏輯 ---
 
@@ -109,9 +119,6 @@ def clean_num(val):
     except: return 0.0
 
 def get_taiex_info(target_date_str=None):
-    """
-    從證交所 API 拿當天最新價格，從 yfinance 拿歷史均線與量比。
-    """
     try:
         query_date = target_date_str or datetime.now().strftime("%Y%m%d")
         print(f"加權指數資料 - {query_date}...", end="")
@@ -120,15 +127,13 @@ def get_taiex_info(target_date_str=None):
         twse_res = requests.get(twse_url, headers=HEADERS, timeout=10).json()
         
         if twse_res.get('stat') != 'OK': 
-            print(" [官方未更新]") 
+            print(" [未更新]") 
             return None
-        
 
         latest_market_data = twse_res['data'][-1]
         official_price = float(latest_market_data[4].replace(',', ''))
         official_diff = float(latest_market_data[5].replace(',', ''))
         
-        # 算量比 (金額為基準)
         amounts = [float(r[2].replace(',', '')) / 100000000 for r in twse_res['data']]
         vol_ratio = 0.0
         if len(amounts) >= 5:
@@ -148,50 +153,62 @@ def get_taiex_info(target_date_str=None):
         c_ma60 = history['Close'].rolling(window=60).mean().iloc[-1]
         prev_close = history['Close'].iloc[-2]
 
+        print(" [OK]")
         return {
-            "price": round(official_price, 2),
-            "diff": round(official_diff, 2),
+            "price": round(official_price, 2), "diff": round(official_diff, 2),
             "pct": round((official_diff / prev_close) * 100, 2),
-            "ma20": round(c_ma20, 2),
-            "ma60": round(c_ma60, 2),
+            "ma20": round(c_ma20, 2), "ma60": round(c_ma60, 2),
             "vol_ratio": round(float(vol_ratio), 2),
             "is_above_ma20": bool(official_price > c_ma20),
             "is_above_ma60": bool(official_price > c_ma60),
             "date": query_date
         }
     except Exception as e:
-        print(f"抓取指數異常: {e}")
+        print(f" [異常: {e}]")
         return None
 
 def get_precise_summary():
     res_data = {"foreign": 0.0, "trust": 0.0, "dealer": 0.0, "total": 0.0, "date": ""}
     url = "https://tw.stock.yahoo.com/institutional-trading/"
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        tai_section = soup.find('div', id='TAI')
-        if tai_section:
-            time_tag = tai_section.find('time')
-            if time_tag:
-                raw_date = time_tag.get('datetime') or time_tag.get_text(strip=True)
-                match = re.search(r'(\d{4})[/-](\d{2})[/-](\d{2})', raw_date)
-                if match: res_data["date"] = "".join(match.groups())
+        # 使用 Scrapling 抓取網頁
+        page = Fetcher.get(url)
 
-        spans = soup.find_all('span', class_=re.compile(r'C\(\$c-trend-(up|down)\)'))
+        # 1. 抓取日期 (精準對應截圖中的 <time> 標籤)
+        time_tags = page.css('time')
+        for t in time_tags:
+            raw_date = t.attrib.get('datetime', '')
+            
+            if not raw_date:
+                raw_date = t.text
+                
+            match = re.search(r'(\d{4})[/-](\d{2})[/-](\d{2})', raw_date)
+            if match:
+                res_data["date"] = "".join(match.groups())
+                break
+
+        # 2. 抓取法人買賣金額數值 (Scrapling 選取器)
+        spans = page.css('span[class*="c-trend-"]')
         all_vals = []
         for s in spans:
-            text = s.get_text(strip=True).replace(',', '')
-            if re.match(r'^-?\d+\.?\d*$', text): all_vals.append(float(text))
+            val_text = s.text.replace(',', '').strip()
+            num_match = re.search(r'(-?\d+\.?\d*)', val_text)
+            if num_match:
+                all_vals.append(float(num_match.group(1)))
 
         if len(all_vals) >= 7:
             res_data['foreign'] = round(all_vals[0] + all_vals[4], 2)
             res_data['trust']   = round(all_vals[1] + all_vals[5], 2)
             res_data['dealer']  = round(all_vals[2] + all_vals[6], 2)
             res_data['total']   = round(res_data['foreign'] + res_data['trust'] + res_data['dealer'], 2)
+            
             print(f"法人合計 - {res_data['date']}")
+        else:
+            print(f"法人合計 - 警告：僅抓到 {len(all_vals)} 筆數據")
 
     except Exception as e:
-        print(f"Yahoo 爬蟲失敗: {e}")
+        print(f"爬取 Yahoo 失敗: {e}")
+        
     return res_data
 
 @app.route('/api/init_progress')
@@ -201,11 +218,9 @@ def get_init_progress(): return jsonify(INIT_PROGRESS)
 def get_main_data():
     if not INIT_PROGRESS["is_done"]: return jsonify({"status": "loading"}), 202
 
-    # 1. 爬蟲定錨日期
     summary_board = get_precise_summary()
     start_date = datetime.strptime(summary_board["date"], "%Y%m%d") if summary_board.get("date") else datetime.now()
 
-    # 2. 進入日期對齊迴圈
     for i in range(5):
         target = start_date - timedelta(days=i)
         d_twse = target.strftime("%Y%m%d")
@@ -213,18 +228,17 @@ def get_main_data():
         print(f"排行資料對齊日期 - {d_twse}", end="")
 
         try:
-            # 檢查排行資料是否更新
             tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={d_twse}&selectType=ALL"
             tse_res = requests.get(tse_url, headers=HEADERS, timeout=10).json()
             if tse_res.get('stat') != 'OK': 
                 print(" [資料尚未更新]")
                 continue
-            print(" [資料對齊]") # 🌟 補回狀態
-
+            
+            print(" [資料對齊]")
             taiex = get_taiex_info(d_twse)
             summary_board["date"] = d_twse
 
-            # 抓取並處理排行資料
+            # 處理上市資料
             raw_tse = pd.DataFrame(tse_res['data'])
             df_tse = pd.DataFrame({
                 'stock_id': raw_tse.iloc[:, 0].str.strip(),
@@ -236,6 +250,7 @@ def get_main_data():
                 'market': 'tse'
             })
 
+            # 處理上櫃資料
             otc_url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_tpex}"
             otc_res = requests.get(otc_url, headers=HEADERS, timeout=10).json()
             otc_rows = otc_res.get('tables', [{}])[0].get('data', []) or otc_res.get('aaData', []) or []
@@ -252,7 +267,6 @@ def get_main_data():
                     'market': 'otc'
                 })
 
-            # 3. 🌟 精準個股判定
             df = pd.concat([df_tse, df_otc], ignore_index=True).fillna(0)
             raw_sids = df['stock_id'].astype(str).str.strip()
             df['is_etf'] = raw_sids.apply(lambda x: len(x) != 4 or x.startswith('00'))
@@ -269,17 +283,14 @@ def get_main_data():
             df['all_tags'] = [p[1] for p in profiles]
             df.loc[df['is_etf'], 'category'] = 'ETF/指數標的'
 
-            # 🌟 4. 製作雷達籌碼小抄
-            chip_map = {}
-            for _, row in df.iterrows():
-                chip_map[str(row['stock_id'])] = {
-                    "f": round(float(row['foreign']), 0),
-                    "t": round(float(row['trust']), 0),
-                    "d": round(float(row['dealer']), 0)
-                }
-            threading.Thread(target=run_radar_background, args=(chip_map,), daemon=True).start()
+            # 製作雷達小抄
+            chip_map = {str(row['stock_id']): {
+                "f": round(float(row['foreign']), 0),
+                "t": round(float(row['trust']), 0),
+                "d": round(float(row['dealer']), 0)
+            } for _, row in df.iterrows()}
 
-            # 5. 族群統計修復
+            # 族群統計與強勢族群提取
             sector_list = []
             for cat, sub in df[~df['is_etf']].groupby('category'):
                 if not cat or cat == "一般個股": continue
@@ -294,30 +305,32 @@ def get_main_data():
                     "top_components": sub.nlargest(5, 'total')[['stock_id', 'stock_name', 'total']].to_dict('records')
                 })
 
-            def get_ranks(col):
-                # 🌟 增加到 500 筆解決個股變少的問題
+            top_sectors_names = [s['name'] for s in sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:10]]
+
+            # 啟動雷達
+            threading.Thread(target=run_radar_background, args=(chip_map, top_sectors_names, GLOBAL_STOCK_DB), daemon=True).start()
+
+            def get_ranks(col, source_df):
                 return {
-                    "tse_b": df[df['market']=='tse'].nlargest(500, col).to_dict('records'),
-                    "tse_s": df[df['market']=='tse'].nsmallest(500, col).to_dict('records'),
-                    "otc_b": df[df['market']=='otc'].nlargest(500, col).to_dict('records'),
-                    "otc_s": df[df['market']=='otc'].nsmallest(500, col).to_dict('records')
+                    "tse_b": source_df[source_df['market']=='tse'].nlargest(500, col).to_dict('records'),
+                    "tse_s": source_df[source_df['market']=='tse'].nsmallest(500, col).to_dict('records'),
+                    "otc_b": source_df[source_df['market']=='otc'].nlargest(500, col).to_dict('records'),
+                    "otc_s": source_df[source_df['market']=='otc'].nsmallest(500, col).to_dict('records')
                 }
 
             print(f"全系統資料基準點：{d_twse}")
             print("-" * 40)
-
             return jsonify({
                 "date": d_twse, "taiex": taiex, "summary": summary_board,
                 "sectors": {
                     "buy": sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:15],
                     "sell": sorted([s for s in sector_list if s['total'] < 0], key=lambda x: x['total'])[:15]
                 },
-                "rankings": {"total": get_ranks('total'), "foreign": get_ranks('foreign'), "trust": get_ranks('trust'), "dealer": get_ranks('dealer')}
+                "rankings": {"total": get_ranks('total', df), "foreign": get_ranks('foreign', df), "trust": get_ranks('trust', df), "dealer": get_ranks('dealer', df)}
             })
         except Exception as e:
-            print(f"處理錯誤: {e}")
+            print(f" [處理錯誤: {e}]")
             continue
-    
 
     return jsonify({"error": "No data found"}), 404
 
