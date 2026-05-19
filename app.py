@@ -153,7 +153,7 @@ def get_taiex_info(target_date_str=None):
         c_ma60 = history['Close'].rolling(window=60).mean().iloc[-1]
         prev_close = history['Close'].iloc[-2]
 
-        print(" [OK]")
+        print(" [資料對齊]")
         return {
             "price": round(official_price, 2), "diff": round(official_diff, 2),
             "pct": round((official_diff / prev_close) * 100, 2),
@@ -171,23 +171,22 @@ def get_precise_summary():
     res_data = {"foreign": 0.0, "trust": 0.0, "dealer": 0.0, "total": 0.0, "date": ""}
     url = "https://tw.stock.yahoo.com/institutional-trading/"
     try:
-        # 使用 Scrapling 抓取網頁
         page = Fetcher.get(url)
 
-        # 1. 抓取日期 (精準對應截圖中的 <time> 標籤)
+        # 🌟 1. 抓取日期：根據妳的診斷 Log，屬性名稱是 'datatime'
         time_tags = page.css('time')
         for t in time_tags:
-            raw_date = t.attrib.get('datetime', '')
+            # 同時檢查 'datatime' (妳看到的) 與 'datetime' (標準格式)
+            raw_date = t.attrib.get('datatime') or t.attrib.get('datetime') or t.text
             
-            if not raw_date:
-                raw_date = t.text
-                
-            match = re.search(r'(\d{4})[/-](\d{2})[/-](\d{2})', raw_date)
-            if match:
-                res_data["date"] = "".join(match.groups())
-                break
+            if raw_date:
+                match = re.search(r'(\d{4})[/-](\d{2})[/-](\d{2})', raw_date)
+                if match:
+                    res_data["date"] = "".join(match.groups())
+                    print(f"法人合計日期定錨 - {res_data['date']}")
+                    break
 
-        # 2. 抓取法人買賣金額數值 (Scrapling 選取器)
+        # 2. 抓取法人買賣金額數值
         spans = page.css('span[class*="c-trend-"]')
         all_vals = []
         for s in spans:
@@ -196,18 +195,19 @@ def get_precise_summary():
             if num_match:
                 all_vals.append(float(num_match.group(1)))
 
+        # 按照 Yahoo 結構 (0,1,2=上市; 4,5,6=上櫃)
         if len(all_vals) >= 7:
             res_data['foreign'] = round(all_vals[0] + all_vals[4], 2)
             res_data['trust']   = round(all_vals[1] + all_vals[5], 2)
             res_data['dealer']  = round(all_vals[2] + all_vals[6], 2)
             res_data['total']   = round(res_data['foreign'] + res_data['trust'] + res_data['dealer'], 2)
-            
-            print(f"法人合計 - {res_data['date']}")
         else:
-            print(f"法人合計 - 警告：僅抓到 {len(all_vals)} 筆數據")
+            print(f"法人合計 - 數值不足 (僅 {len(all_vals)} 筆)")
 
     except Exception as e:
-        print(f"爬取 Yahoo 失敗: {e}")
+        print(f"Scrapling 爬取失敗: {e}")
+        # 如果真的還是抓不到，強迫定錨在昨天，避免系統 404
+        res_data["date"] = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
         
     return res_data
 
@@ -219,13 +219,22 @@ def get_main_data():
     if not INIT_PROGRESS["is_done"]: return jsonify({"status": "loading"}), 202
 
     summary_board = get_precise_summary()
-    start_date = datetime.strptime(summary_board["date"], "%Y%m%d") if summary_board.get("date") else datetime.now()
+    
+    # 🌟 優化後的日期解析邏輯 (增加錯誤防護)
+    if summary_board.get("date"):
+        try:
+            start_date = datetime.strptime(summary_board["date"], "%Y%m%d")
+        except ValueError:
+            print(f"⚠️ 日期格式異常({summary_board['date']})，改用系統今日")
+            start_date = datetime.now()
+    else:
+        start_date = datetime.now()
 
     for i in range(5):
         target = start_date - timedelta(days=i)
         d_twse = target.strftime("%Y%m%d")
         d_tpex = f"{target.year - 1911}/{target.strftime('%m/%d')}"
-        print(f"排行資料對齊日期 - {d_twse}", end="")
+        print(f"排行資料 - {d_twse}", end="")
 
         try:
             tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={d_twse}&selectType=ALL"
@@ -291,22 +300,44 @@ def get_main_data():
             } for _, row in df.iterrows()}
 
             # 族群統計與強勢族群提取
+            sector_dict = {}
+            
+            # 只針對個股 (非 ETF) 進行遍歷
+            for _, row in df[~df['is_etf']].iterrows():
+                # 獲取這檔股票所有的標籤名稱 (electronics, concepts, group, basic)
+                all_tags_set = set(val for val in row['all_tags'].values() if val and val != "一般個股")
+                
+                for tag_name in all_tags_set:
+                    if tag_name not in sector_dict:
+                        sector_dict[tag_name] = {"total": 0.0, "f": 0.0, "t": 0.0, "d": 0.0, "components": []}
+                    
+                    s = sector_dict[tag_name]
+                    s["total"] += float(row['total'])
+                    s["f"] += float(row['foreign'])
+                    s["t"] += float(row['trust'])
+                    s["d"] += float(row['dealer'])
+                    s["components"].append({
+                        "stock_id": row['stock_id'],
+                        "stock_name": row['stock_name'],
+                        "total": row['total']
+                    })
+
             sector_list = []
-            for cat, sub in df[~df['is_etf']].groupby('category'):
-                if not cat or cat == "一般個股": continue
-                val = float(sub['total'].sum())
-                if abs(val) < 1: continue
+            for name, s in sector_dict.items():
+                if abs(s["total"]) < 1: continue 
+                
                 sector_list.append({
-                    "name": str(cat), 
-                    "total": round(val, 0), 
-                    "foreign": round(float(sub['foreign'].sum()), 0), 
-                    "trust": round(float(sub['trust'].sum()), 0),
-                    "dealer": round(float(sub['dealer'].sum()), 0),
-                    "top_components": sub.nlargest(5, 'total')[['stock_id', 'stock_name', 'total']].to_dict('records')
+                    "name": name,
+                    "total": round(s["total"], 0),
+                    "foreign": round(s["f"], 0),
+                    "trust": round(s["t"], 0),
+                    "dealer": round(s["d"], 0),
+                    "top_components": sorted(s["components"], key=lambda x: x['total'], reverse=True)[:5]
                 })
 
-            top_sectors_names = [s['name'] for s in sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:10]]
-
+            # 🌟 6. 提取強勢族群前 10 名 (邏輯維持不變)
+            top_sectors_list = sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:10]
+            top_sectors_names = [s['name'] for s in top_sectors_list]
             # 啟動雷達
             threading.Thread(target=run_radar_background, args=(chip_map, top_sectors_names, GLOBAL_STOCK_DB), daemon=True).start()
 

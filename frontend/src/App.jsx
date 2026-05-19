@@ -137,7 +137,8 @@ export default function App() {
       <div className="transition-all duration-300">
         {tab === 'radar' && <RadarView data={radarData} onScanComplete={fetchRadarData} />}
         {tab === 'sectors' && <SectorView data={data?.sectors} />}
-        {(tab !== 'radar' && tab !== 'sectors') && <RankingView list={currentList} type={tab} excludeETF={excludeETF} />}
+        {(tab !== 'radar' && tab !== 'sectors') && <RankingView list={currentList} type={tab} excludeETF={excludeETF}     data={data} 
+/>}
       </div>
     </div>
   );
@@ -146,7 +147,7 @@ export default function App() {
 // ==========================================
 // 🌟 排行榜：上下佈局 & 顏色過濾
 // ==========================================
-function RankingView({ list, type, excludeETF }) {
+function RankingView({ list, type, excludeETF, data }) {
   const [expandedId, setExpandedId] = useState(null);
 
   const Table = ({ items, isBuy, title }) => {
@@ -167,6 +168,8 @@ function RankingView({ list, type, excludeETF }) {
               const isExpanded = expandedId === s.stock_id;
               const mainTagType = Object.keys(TAG_THEMES).find(key => s.all_tags?.[key]?.trim() === s.category?.trim()) || 'basic';
               const mainStyle = TAG_THEMES[mainTagType];
+              
+              // 獲取其他標籤
               const otherTags = Object.entries(s.all_tags || {}).filter(([tKey, tName]) => tName && tName.trim() !== s.category?.trim() && TAG_THEMES[tKey]);
 
               return (
@@ -197,7 +200,20 @@ function RankingView({ list, type, excludeETF }) {
                               <div className="flex flex-wrap gap-2">
                                 {otherTags.map(([tKey, tName]) => {
                                   const stl = TAG_THEMES[tKey];
-                                  return (<span key={tKey} style={{ backgroundColor: stl.bg, color: stl.text, borderColor: stl.border }} className="px-2 py-1 rounded-md border text-[10px] font-black shadow-sm">{stl.label}: {tName}</span>);
+                                  
+                                  // 🌟 修正點：使用安全鏈 ?. 並確保 data 存在
+                                  const isHot = data?.sectors?.buy?.some(sector => sector.name === tName);
+
+                                  return (
+                                    <span 
+                                      key={tKey} 
+                                      style={{ backgroundColor: stl.bg, color: stl.text, borderColor: stl.border }} 
+                                      className={`px-2 py-1 rounded-md text-[10px] font-black shadow-sm flex items-center gap-1 `}
+                                    >
+                                      {isHot && <span>🔥</span>}
+                                      {tName}
+                                    </span>
+                                  );
                                 })}
                               </div>
                             </div>)}
@@ -210,6 +226,7 @@ function RankingView({ list, type, excludeETF }) {
         </table>
       </div>);
   };
+  
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fadeIn">
       <div className="flex flex-col gap-4">
@@ -222,7 +239,6 @@ function RankingView({ list, type, excludeETF }) {
       </div>
     </div>);
 }
-
 // ==========================================
 // 🌟 雷達頁面：強化監控標籤與籌碼動向
 // ==========================================
