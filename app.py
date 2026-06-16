@@ -273,20 +273,46 @@ def run_radar_background(chip_map=None, top_sectors=None, industry_db=None, curr
         with RADAR_LOCK: IS_RADAR_RUNNING = False
 
 def initial_data_sync():
-    """ 程式啟動後，立刻抓取最新籌碼並啟動雷達 """
+    """ 程式啟動後，主動抓取最新籌碼，確保第一次雷達就是 YES """
     print("🚀 [系統初始化] 正在定錨最新日期並同步籌碼...")
     board = get_dashboard_commander()
     anchor_date = board["date"]
     
     if anchor_date:
         try:
-            margin_map = get_official_margin_details(anchor_date)
-            print(f"📡 已取得 {anchor_date} 基礎籌碼，啟動後台雷達...")
+            # --- 🌟 新增：在啟動雷達前，先抓取個股法人排行 ---
+            print(f"📡 正在預抓 {anchor_date} 個股法人籌碼...")
+            
+            # 1. 抓取上市排行
+            tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={anchor_date}&selectType=ALL"
+            tse_res = requests.get(tse_url, headers=HEADERS, timeout=10).json()
+            
+            # 2. 抓取上櫃排行 (這裡日期要轉成民國)
+            d_tpex = f"{int(anchor_date[:4])-1911}/{anchor_date[4:6]}/{anchor_date[6:]}"
+            otc_url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_tpex}"
+            otc_json = requests.get(otc_url, headers=HEADERS).json()
+            
+            # 3. 組合 chip_map (簡化版，只需外資與投信)
+            chip_map = {}
+            if tse_res.get('data'):
+                for r in tse_res['data']:
+                    sid = str(r[0]).strip()
+                    chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[10])/1000}
+            
+            otc_rows = otc_json.get('aaData', []) or otc_json.get('data', [])
+            for r in otc_rows:
+                sid = str(r[0]).strip()
+                chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[13])/1000}
+
+            # 4. 啟動雷達 (這時 chip_map 有資料了，會顯示 YES)
+            print(f"✅ 籌碼預對齊完成 ({len(chip_map)} 檔)，啟動完整雷達...")
+            run_radar_background(chip_map=chip_map, top_sectors=[], industry_db=GLOBAL_STOCK_DB, current_date=anchor_date)
+            
+        except Exception as e:
+            print(f"⚠️ 預抓籌碼失敗 ({e})，執行純技術面掃描...")
             run_radar_background(chip_map={}, top_sectors=[], current_date=anchor_date)
-        except:
-            run_radar_background() # 萬一 API 沒出，跑純技術版保底
     else:
-        run_radar_background() # 萬一連不上 Yahoo，跑純技術版保底
+        run_radar_background()
 
 # --- 3. 核心 API 路由 ---
 @app.route('/api/init_progress')
@@ -360,7 +386,7 @@ def get_main_data():
             breadth = {"up": up_stocks, "down": down_stocks}
             signals = {
                 "inst": "買盤力道強勁" if board["inst_total"] > 0 else "買盤尚未回流",
-                "margin": "籌碼換手乾淨" if board["margin_f"] < 0 and board["inst_total"] > 0 else "情緒過熱" if board["margin_f"] > 50 else "⚠️ 散戶接盤" if board["margin_f"] > 0 and board["inst_total"] < 0 else "💤 交投平淡"
+                "margin": "籌碼換手乾淨" if board["margin_f"] < 0 and board["inst_total"] > 0 else "情緒過熱" if board["margin_f"] > 50 else "散戶接盤" if board["margin_f"] > 0 and board["inst_total"] < 0 else "交投平淡"
             }
 
             # 5. 族群統計 (非互斥)

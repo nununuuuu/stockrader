@@ -185,7 +185,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-black text-blue-900 tracking-tighter">法人資金監測</h1>
             <div className="flex items-center bg-white border border-slate-200 px-3 py-1 rounded-xl shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 mr-1.5 uppercase">DATA REF:</span>
+              <span className="text-[10px] font-black text-slate-400 mr-1.5 uppercase">DATA REF</span>
               <span className="text-sm font-mono font-black text-slate-600 mr-2">
                 {data?.date ? `${data.date.slice(0, 4)}/${data.date.slice(4, 6)}/${data.date.slice(6, 8)}` : "----/--/--"}
               </span>
@@ -193,14 +193,31 @@ export default function App() {
               {/* 🌟 顯示舊資料警告 */}
               {data?.stale_warnings && data.stale_warnings.length > 0 ? (
                 <div className="flex gap-1">
-                  {data.stale_warnings.map((msg, idx) => (
-                    <span key={idx} className="px-1.5 py-0.5 bg-amber-50 text-amber-500 text-[8px] font-black rounded border border-amber-100 animate-pulse">
-                      {msg}
-                    </span>
-                  ))}
+                  {data.stale_warnings.map((msg, idx) => {
+                    // 1. 提取訊息中的 8 位數日期
+                    const msgDateMatch = msg.match(/\d{8}/);
+                    const msgDate = msgDateMatch ? msgDateMatch[0] : null;
+                    const refDate = data.date;
+                    // 2. 判定顏色類型
+                    let colorClass = "bg-amber-50 text-amber-500 border-amber-100"; // 預設橘黃 (未對齊)
+                    if (msgDate && refDate) {
+                      if (parseInt(msgDate) < parseInt(refDate)) {
+                        // 資料日期早於基準日 = 過時 (紅色)
+                        colorClass = "bg-red-50 text-red-500 border-red-100 animate-pulse";
+                      }
+                    }
+                    return (
+                      <span
+                        key={idx}
+                        className={`px-1.5 py-0.5 text-[9px] font-black rounded border ${colorClass}`}
+                      >
+                        {msg}
+                      </span>
+                    );
+                  })}
                 </div>
               ) : (
-                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 text-[8px] font-black rounded border border-blue-100">
+                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 text-[9px] font-black rounded border border-blue-100">
                   FULL SYNCED
                 </span>
               )}
@@ -328,38 +345,38 @@ export default function App() {
             </div>
 
             <div className="space-y-3.5 mt-4">
-               {['foreign', 'trust', 'dealer'].map(k => {
-                 const val = data?.summary?.[k] || 0;                
-                 const maxVal = Math.max(
-                    Math.abs(data?.summary?.foreign || 0),
-                    Math.abs(data?.summary?.trust || 0),
-                    Math.abs(data?.summary?.dealer || 0),
-                    100 
-                 );             
-                 const barWidth = (Math.abs(val) / maxVal) * 50; 
-                 const isPositive = val >= 0;
-                 return (
+              {['foreign', 'trust', 'dealer'].map(k => {
+                const val = data?.summary?.[k] || 0;
+                const maxVal = Math.max(
+                  Math.abs(data?.summary?.foreign || 0),
+                  Math.abs(data?.summary?.trust || 0),
+                  Math.abs(data?.summary?.dealer || 0),
+                  100
+                );
+                const barWidth = (Math.abs(val) / maxVal) * 50;
+                const isPositive = val >= 0;
+                return (
                   <div key={k} className="space-y-1">
-                     <div className="flex justify-between text-[9px] font-black uppercase">
-                       <span className="text-slate-400">{k === 'foreign' ? '外資' : k === 'trust' ? '投信' : '自營'}</span>
-                       <span className={isPositive ? 'text-red-500' : 'text-green-600'}>
-                         {formatBillion(val)}
-                       </span>
-                     </div>
+                    <div className="flex justify-between text-[9px] font-black uppercase">
+                      <span className="text-slate-400">{k === 'foreign' ? '外資' : k === 'trust' ? '投信' : '自營'}</span>
+                      <span className={isPositive ? 'text-red-500' : 'text-green-600'}>
+                        {formatBillion(val)}
+                      </span>
+                    </div>
                     <div className="relative h-1.5 w-full bg-slate-50 rounded-full overflow-hidden border border-slate-100/50">
-                        <div className="absolute left-1/2 top-0 w-px h-full bg-slate-200 z-10" />
-                        <div 
-                          className={`absolute top-0 h-full transition-all duration-1000 ease-out ${isPositive ? 'bg-red-400' : 'bg-green-400'}`}
-                          style={{ 
-                            width: `${barWidth}%`,
-                            left: isPositive ? '50%' : 'auto',
-                            right: !isPositive ? '50%' : 'auto'
-                          }}
-                        />
-                     </div>
-                   </div>
-                 );
-               })}
+                      <div className="absolute left-1/2 top-0 w-px h-full bg-slate-200 z-10" />
+                      <div
+                        className={`absolute top-0 h-full transition-all duration-1000 ease-out ${isPositive ? 'bg-red-400' : 'bg-green-400'}`}
+                        style={{
+                          width: `${barWidth}%`,
+                          left: isPositive ? '50%' : 'auto',
+                          right: !isPositive ? '50%' : 'auto'
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="py-2 rounded-xl text-center border border-slate-100 bg-slate-50/80 shadow-sm transition-all mt-2">
@@ -631,9 +648,6 @@ function RadarView({ data, onScanComplete }) {
             className="h-full bg-blue-600 transition-all duration-1000 ease-in-out shadow-[0_0_8px_rgba(37,99,235,0.5)]"
             style={{ width: `${Math.max(progress, 2)}%` }}
           ></div>
-          <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'}`}>
-            {isScanning ? `實時價格掃描中 ${progress}%` : '訊號實時監控中'}
-          </span>
         </div>
       )}
 
@@ -658,14 +672,14 @@ function RadarView({ data, onScanComplete }) {
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm transition-all ${isScanning ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200/50'}`}>
+        <div className="flex items-center gap-4 ">
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm transition-all ${isScanning ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200/50'} `}>
             <span className="relative flex h-2 w-2">
               <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isScanning ? 'animate-ping bg-blue-400' : 'bg-emerald-400'}`}></span>
               <span className={`relative inline-flex rounded-full h-2 w-2 ${isScanning ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
             </span>
             {/* 🌟 修正 2：將掃描進度趴數移到狀態燈這裡，更符合直覺 */}
-            <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'}`}>
+            <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'} `}>
               {isScanning ? `實時價格掃描中 ${progress}%` : '訊號實時監控中'}
             </span>
           </div>
@@ -677,7 +691,7 @@ function RadarView({ data, onScanComplete }) {
       </div>
 
       <div className="flex items-center gap-4 mb-8 overflow-x-auto pb-2">
-        {[{ id: 'first_break', l: '🌱 首日突破' }, { id: 'steady', l: '🛡️ 縮量站穩' }, { id: 'momentum', l: '🔥 動能噴發' }].map(g => (
+        {[{ id: 'first_break', l: '首日突破' }, { id: 'steady', l: '縮量站穩' }, { id: 'momentum', l: '動能噴發' }].map(g => (
           <button
             key={g.id}
             onClick={() => setActiveKey(g.id)}
@@ -743,20 +757,29 @@ function RadarView({ data, onScanComplete }) {
                   </span>
                 </div>
               </div>
-
-              {/* 🌟 籌碼與 V3.0 特殊標籤顯示區 (這裡移除了「漲停鎖死」標籤) */}
-              {item.chip_tag && (
-                <div className="flex flex-wrap gap-2 mb-4">
+              {/* 🌟 標籤與紫圈顯示區 */}
+              <div className="flex items-center gap-2 mb-4">
+                {/* 1. 核心模型/共振標籤 (彩色背景按鈕) */}
+                {item.chip_tag && (
                   <span className={`px-2 py-1 rounded-md text-[10px] font-black border shadow-sm transition-all
-                    ${item.chip_tag.includes('🔴') ? 'bg-red-50 text-red-600 border-red-100' :
-                      item.chip_tag.includes('🌊') ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                        item.chip_tag.includes('💎') ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                          item.chip_tag.includes('⚓') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
-                            'bg-white text-slate-500 border-slate-200'}`}>
+                ${item.chip_tag.includes('🔥') ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                      item.chip_tag.includes('🔴') ? 'bg-red-50 text-red-600 border-red-100' :
+                        item.chip_tag.includes('🌊') ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                          item.chip_tag.includes('💎') ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                            item.chip_tag.includes('⚓') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
+                              'bg-white text-slate-500 border-slate-200'}`}>
                     {item.chip_tag}
                   </span>
-                </div>
-              )}
+                )}
+
+                {/* 2. 🌟 紫圈標籤文字：資金主戰場 | 投信重倉 (純文字顯示在按鈕旁) */}
+                {item.money_label && (
+                  <span className="text-[12px] font-black text-purple-600 ml-1">
+                    {item.money_label}
+                  </span>
+                )}
+
+              </div>
               {/* 實戰診斷與計畫文字 */}
               <pre className="text-[12px] font-sans text-slate-600 bg-white p-5 rounded-2xl border border-slate-50 whitespace-pre-wrap leading-relaxed shadow-sm font-bold">
                 {item.full_text}
