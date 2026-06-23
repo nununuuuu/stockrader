@@ -14,6 +14,9 @@ import os
 import codecs
 from scrapling import Fetcher
 import radar_select 
+import hotindustry
+import threading
+
 
 # --- 步驟 0：修補編碼與環境配置 ---
 try:
@@ -27,7 +30,9 @@ CORS(app)
 RAPID_API_KEY = "3eadd849edmshc5413e91ec37d73p1a0159jsn40bd306147ac"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Referer': 'https://tw.stock.yahoo.com/'
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://www.twse.com.tw/zh/page/trading/exchange/MI_INDEX.html'
 }
 
 # --- 全域狀態變數 ---
@@ -40,7 +45,11 @@ RADAR_LOCK = threading.Lock()
 INIT_PROGRESS = {
     "percentage": 0, "status": "IDLE", "current_item": "", "total_tasks": 0, "current_task_idx": 0, "is_done": False
 }
+HOT_PROGRESS = 0
+IS_HOT_RUNNING = False
 MAP_FILE = "industry_map.json"
+HOT_MGR = hotindustry.HotIndustryManager(GLOBAL_STOCK_DB) # 🌟 改為大寫
+
 
 # --- 1. 核心抓取工具 ---
 
@@ -125,7 +134,7 @@ def get_dashboard_commander():
         cl_tse, cl_otc = c_tse['credits']['list'][idx], c_otc['credits']['list'][idx]
         
         result["date"] = tl_tse['date'][:10].replace('-', '')
-        print(f"📡 [定錨] Yahoo 總額數據日期: {result['date']}")
+        print(f"[抓取] Yahoo 總額數據日期: {result['date']}")
         
         # 法人加總 (億)
         result["inst_f"] = (clean_num(tl_tse.get('foreignDiffM')) + clean_num(tl_otc.get('foreignDiffM'))) / 100
@@ -141,7 +150,7 @@ def get_dashboard_commander():
         tr, or_ = clean_num(cl_tse.get('shortFinancingPercent')), clean_num(cl_otc.get('shortFinancingPercent'))
         result["ratio"] = round(((tr * tb) + (or_ * ob)) / (tb + ob), 2) if (tb + ob) > 0 else 0.0
         result["tse_ratio"], result["otc_ratio"] = round(tr, 2), round(or_, 2)
-    except Exception as e: print(f"❌ Yahoo Commander Error: {e}")
+    except Exception as e: print(f"Yahoo Commander Error: {e}")
     return result
 
 def get_precise_summary():
@@ -155,7 +164,7 @@ def get_precise_summary():
         if 'list' in t_res and len(t_res['list']) > 0:
             l = t_res['list'][0]
             res["date"] = l['date'][:10].replace('-', '')
-            print(f"📡 [定錨] 三大法人 - 最新日期: {res['date']}")
+            print(f"[抓取] 三大法人 - 最新日期: {res['date']}")
             res["foreign"] = round((clean_num(l.get('foreignDiffM')) + clean_num(o_res['list'][0].get('foreignDiffM'))) / 100, 2)
             res["trust"] = round((clean_num(l.get('investmentTrustDiffM')) + clean_num(o_res['list'][0].get('investmentTrustDiffM'))) / 100, 2)
             res["dealer"] = round((clean_num(l.get('dealerDiffM')) + clean_num(o_res['list'][0].get('dealerDiffM'))) / 100, 2)
@@ -195,16 +204,15 @@ def scrape_all_yahoo_classes():
     global GLOBAL_STOCK_DB, INIT_PROGRESS
     
     if os.path.exists(MAP_FILE):
-        print(f"📁 發現本地產業地圖，正在載入...")
+        print(f"發現本地產業地圖，正在載入...")
         try:
             with open(MAP_FILE, 'r', encoding='utf-8') as f:
                 GLOBAL_STOCK_DB = json.load(f)
             INIT_PROGRESS.update({"percentage": 100, "is_done": True})
             
-            # 🌟 關鍵修正：地圖讀完後，去跑「主動同步」
             threading.Thread(target=initial_data_sync, daemon=True).start()
             return
-        except: print(f"❌ 讀取快取失敗")
+        except: print(f"讀取快取失敗")
 
     INIT_PROGRESS["status"] = "SCANNING"
     targets = [
@@ -242,7 +250,7 @@ def scrape_all_yahoo_classes():
         with open(MAP_FILE, 'w', encoding='utf-8') as f:
             json.dump(GLOBAL_STOCK_DB, f, ensure_ascii=False, indent=4)
         INIT_PROGRESS["is_done"] = True
-        print("✅ 產業地圖收錄完成。啟動主動同步任務...")
+        print("產業地圖收錄完成。啟動主動同步任務...")
         threading.Thread(target=initial_data_sync, daemon=True).start()
     except Exception as e: print(f"地圖掃描異常: {e}")
 
@@ -259,33 +267,33 @@ def run_radar_background(chip_map=None, top_sectors=None, industry_db=None, curr
         ts = top_sectors if top_sectors is not None else []
         db = industry_db if industry_db is not None else GLOBAL_STOCK_DB
         
-        print(f"🚀 [雷達啟動] 正在掃描基準日: {current_date or '最新'} | 籌碼對齊: {'YES' if chip_map else 'NO'}")
+        print(f"[雷達啟動] 正在掃描基準日: {current_date or '最新'} | 籌碼對齊: {'YES' if chip_map else 'NO'}")
         
         # 執行掃描
         results = radar_select.run_radar_scan(cm, ts, db)
         
         RADAR_RESULTS = results
         RADAR_LAST_DATE = current_date
-        print("✅ [雷達完成] 結果已更新。")
+        print("[雷達完成] 結果已更新。")
     except Exception as e:
-        print(f"❌ [雷達異常]: {e}")
+        print(f"[雷達異常]: {e}")
     finally:
         with RADAR_LOCK: IS_RADAR_RUNNING = False
 
 def initial_data_sync():
     """ 程式啟動後，主動抓取最新籌碼，確保第一次雷達就是 YES """
-    print("🚀 [系統初始化] 正在定錨最新日期並同步籌碼...")
+    print("[系統初始化] 正在定錨最新日期並同步籌碼...")
     board = get_dashboard_commander()
     anchor_date = board["date"]
     
     if anchor_date:
         try:
             # --- 🌟 新增：在啟動雷達前，先抓取個股法人排行 ---
-            print(f"📡 正在預抓 {anchor_date} 個股法人籌碼...")
+            print(f"正在預抓 {anchor_date} 個股法人籌碼...")
             
             # 1. 抓取上市排行
             tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={anchor_date}&selectType=ALL"
-            tse_res = requests.get(tse_url, headers=HEADERS, timeout=10).json()
+            tse_res = requests.get(tse_url, headers=HEADERS, timeout=20).json()
             
             # 2. 抓取上櫃排行 (這裡日期要轉成民國)
             d_tpex = f"{int(anchor_date[:4])-1911}/{anchor_date[4:6]}/{anchor_date[6:]}"
@@ -305,11 +313,11 @@ def initial_data_sync():
                 chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[13])/1000}
 
             # 4. 啟動雷達 (這時 chip_map 有資料了，會顯示 YES)
-            print(f"✅ 籌碼預對齊完成 ({len(chip_map)} 檔)，啟動完整雷達...")
+            print(f"籌碼預對齊完成 ({len(chip_map)} 檔)，啟動完整雷達...")
             run_radar_background(chip_map=chip_map, top_sectors=[], industry_db=GLOBAL_STOCK_DB, current_date=anchor_date)
             
         except Exception as e:
-            print(f"⚠️ 預抓籌碼失敗 ({e})，執行純技術面掃描...")
+            print(f"預抓籌碼失敗 ({e})，執行純技術面掃描...")
             run_radar_background(chip_map={}, top_sectors=[], current_date=anchor_date)
     else:
         run_radar_background()
@@ -340,7 +348,7 @@ def get_main_data():
         try:
             # 1. 抓取上市排行
             tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={d_twse}&selectType=ALL"
-            tse_res = requests.get(tse_url, headers=HEADERS, timeout=10).json()
+            tse_res = requests.get(tse_url, headers=HEADERS, timeout=30).json()
             if tse_res.get('stat') != 'OK' or not tse_res.get('data'): continue
             
             # 2. 抓取同步數據
@@ -382,53 +390,115 @@ def get_main_data():
             df['margin'] = df['stock_id'].apply(lambda x: margin_map.get(x, {"f_change":0, "s_change":0}))
 
             # 4. 決策維度
-            up_stocks, down_stocks = len(df[(df['total'] > 0) & (~df['is_etf'])]), len(df[(df['total'] < 0) & (~df['is_etf'])])
-            breadth = {"up": up_stocks, "down": down_stocks}
-            signals = {
-                "inst": "買盤力道強勁" if board["inst_total"] > 0 else "買盤尚未回流",
-                "margin": "籌碼換手乾淨" if board["margin_f"] < 0 and board["inst_total"] > 0 else "情緒過熱" if board["margin_f"] > 50 else "散戶接盤" if board["margin_f"] > 0 and board["inst_total"] < 0 else "交投平淡"
-            }
-
+            up_stocks = len(df[(df['total'] > 0) & (~df['is_etf'])])
+            down_stocks = len(df[(df['total'] < 0) & (~df['is_etf'])])
+            
+            # 建立訊號邏輯
+            inst_sig = "買盤力道強勁" if board["inst_total"] > 0 else "買盤尚未回流"
+            margin_sig = "交投平淡"
+            if board["margin_f"] < 0 and board["inst_total"] > 0:
+                margin_sig = "籌碼換手乾淨"
+            elif board["margin_f"] > 50:
+                margin_sig = "情緒過熱"
+            elif board["margin_f"] > 0 and board["inst_total"] < 0:
+                margin_sig = "散戶接盤"
+                
             # 5. 族群統計 (非互斥)
             sector_dict = {}
             for _, row in df[~df['is_etf']].iterrows():
                 for t_name in set(v for v in row['all_tags'].values() if v and v != "一般個股"):
-                    if t_name not in sector_dict: sector_dict[t_name] = {"total":0.0, "f":0.0, "t":0.0, "d":0.0, "comps":[]}
+                    if t_name not in sector_dict: 
+                        sector_dict[t_name] = {"total":0.0, "f":0.0, "t":0.0, "d":0.0, "comps":[]}
                     s = sector_dict[t_name]
-                    s["total"] += float(row['total']); s["f"] += float(row['foreign']); s["t"] += float(row['trust']); s["d"] += float(row['dealer'])
+                    s["total"] += float(row['total'])
+                    s["f"] += float(row['foreign'])
+                    s["t"] += float(row['trust'])
+                    s["d"] += float(row['dealer'])
                     s["comps"].append({"stock_id": row['stock_id'], "stock_name": row['stock_name'], "total": row['total']})
 
             sector_list = []
             for name, s in sector_dict.items():
                 if abs(s["total"]) < 1: continue
-                tag_type = next((k for k, v in GLOBAL_STOCK_DB.get(s["comps"][0]["stock_id"], {}).items() if v == name), "basic")
-                sector_list.append({"name": name, "tag_type": tag_type, "total": round(s["total"],0), "foreign": round(s["f"],0), "trust": round(s["t"],0), "dealer": round(s["d"],0), "top_components": sorted(s["comps"], key=lambda x: x['total'], reverse=True)[:5]})
+                sector_list.append({
+                    "name": name, 
+                    "total": round(s["total"],0), 
+                    "foreign": round(s["f"],0), 
+                    "trust": round(s["t"],0), 
+                    "dealer": round(s["d"],0), 
+                    "top_components": sorted(s["comps"], key=lambda x: x['total'], reverse=True)[:5]
+                })
 
-            # 數據洗淨
+            # --- 6. 外部組件 (熱門產業) ---
+            try:
+                hot_result = HOT_MGR.get_hot_industry_data(d_twse, GLOBAL_STOCK_DB)
+            except:
+                hot_result = {"resonance": [], "top5": [], "others": []}
+
+            # --- 7. 排行榜格式化 ---
             clean_records = json.loads(df.to_json(orient='records'))
             def gen_rank(c):
-                t, o = [r for r in clean_records if r['market']=='tse'], [r for r in clean_records if r['market']=='otc']
-                return { "tse_b": sorted([r for r in t if r[c]>0], key=lambda x:x[c], reverse=True)[:500], "tse_s": sorted([r for r in t if r[c]<0], key=lambda x:x[c])[:500], "otc_b": sorted([r for r in o if r[c]>0], key=lambda x:x[c], reverse=True)[:500], "otc_s": sorted([r for r in o if r[c]<0], key=lambda x:x[c])[:500] }
+                t = [r for r in clean_records if r['market']=='tse']
+                o = [r for r in clean_records if r['market']=='otc']
+                return {
+                    "tse_b": sorted([r for r in t if r[c]>0], key=lambda x:x[c], reverse=True)[:100],
+                    "tse_s": sorted([r for r in t if r[c]<0], key=lambda x:x[c])[:100],
+                    "otc_b": sorted([r for r in o if r[c]>0], key=lambda x:x[c], reverse=True)[:100],
+                    "otc_s": sorted([r for r in o if r[c]<0], key=lambda x:x[c])[:100]
+                }
 
-            # 🌟 最終快取封裝
-            top_sectors_names = [s['name'] for s in sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:10]]
-            chip_map = {str(r['stock_id']): {"f": r['foreign'], "t": r['trust'], "d": r['dealer']} for _, r in df.iterrows()}
-            
-            GLOBAL_DATA_CACHE = {
-                "date": str(d_twse), "taiex": taiex, "sentiment": sentiment, 
-                "summary": {"foreign": board["inst_f"], "trust": board["inst_t"], "dealer": board["inst_d"], "total": board["inst_total"]},
-                "margin": {"financing": board["margin_f"], "short_selling": board["margin_s"], "ratio": board["ratio"], "tse_ratio": board["tse_ratio"], "otc_ratio": board["otc_ratio"]},
-                "sectors": { "buy": sorted([s for s in sector_list if s['total']>0], key=lambda x:x['total'], reverse=True)[:15], "sell": sorted([s for s in sector_list if s['total']<0], key=lambda x:x['total'])[:15] },
-                "rankings": { "total": gen_rank('total'), "foreign": gen_rank('foreign'), "trust": gen_rank('trust'), "dealer": gen_rank('dealer') },
-                "breadth": breadth, "signals": signals, "stale_warnings": stale_warnings,
-                "radar_ingredients": { "chip_map": chip_map, "top_sectors": top_sectors_names, "date": d_twse }
+            # --- 🌟 8. 最終資料封裝 (直接引用上方變數) ---
+            final_data = {
+                "date": str(d_twse),
+                "taiex": taiex,
+                "sentiment": sentiment,
+                "hot_map": hot_result or {"resonance": [], "top5": [], "others": []},
+                "summary": {
+                    "foreign": board["inst_f"], 
+                    "trust": board["inst_t"], 
+                    "dealer": board["inst_d"], 
+                    "total": board["inst_total"]
+                },
+                "margin": {
+                    "financing": board["margin_f"], 
+                    "short_selling": board["margin_s"], 
+                    "ratio": board["ratio"], 
+                    "tse_ratio": board["tse_ratio"], 
+                    "otc_ratio": board["otc_ratio"]
+                },
+                "sectors": {
+                    "buy": sorted([s for s in sector_list if s['total']>0], key=lambda x:x['total'], reverse=True)[:15],
+                    "sell": sorted([s for s in sector_list if s['total']<0], key=lambda x:x['total'])[:15]
+                },
+                "rankings": {
+                    "total": gen_rank('total'), 
+                    "foreign": gen_rank('foreign'), 
+                    "trust": gen_rank('trust'), 
+                    "dealer": gen_rank('dealer')
+                },
+                "breadth": {"up": up_stocks, "down": down_stocks},
+                "signals": {"inst": inst_sig, "margin": margin_sig},
+                "stale_warnings": stale_warnings,
+                "radar_ingredients": { 
+                    "chip_map": {str(r['stock_id']): {"f": r['foreign'], "t": r['trust']} for r in clean_records}, 
+                    "top_sectors": [s['name'] for s in sorted([s for s in sector_list if s['total'] > 0], key=lambda x: x['total'], reverse=True)[:10]],
+                    "date": d_twse 
+                }
             }
-            if not IS_RADAR_RUNNING: threading.Thread(target=run_radar_background, args=(chip_map, top_sectors_names, GLOBAL_STOCK_DB, d_twse), daemon=True).start()
+
+
+            GLOBAL_DATA_CACHE = final_data
             
-            print(f"✅ 全系統資料對齊: {d_twse} (Stale: {stale_warnings})")
+            # 啟動雷達
+            if not IS_RADAR_RUNNING:
+                ing = final_data["radar_ingredients"]
+                threading.Thread(target=run_radar_background, args=(ing["chip_map"], ing["top_sectors"], GLOBAL_STOCK_DB, d_twse), daemon=True).start()
+
             return jsonify(GLOBAL_DATA_CACHE)
-        except Exception as e: print(f"❌ 處理錯誤: {e}"); continue
-    return jsonify({"error": "No data"}), 404
+        except Exception as e:
+            print(f"處理錯誤: {e}")
+            continue
+
+    return jsonify({"error": "No data available"}), 404
 
 # --- 輔助路由 ---
 @app.route('/api/radar/refresh', methods=['POST'])
@@ -445,6 +515,64 @@ def get_radar(): return jsonify(RADAR_RESULTS)
 
 @app.route('/api/radar_progress')
 def get_radar_progress(): return jsonify({"progress": getattr(radar_select, 'PROGRESS', 0), "is_running": IS_RADAR_RUNNING})
+
+@app.route('/api/admin/update_industry_map', methods=['POST'])
+def force_update_industry_map():
+    global IS_HOT_RUNNING, HOT_PROGRESS
+    if IS_HOT_RUNNING:
+        return jsonify({"status": "busy", "message": "同步正在進行中"}), 400
+    
+    def run_task():
+        global IS_HOT_RUNNING, HOT_PROGRESS, GLOBAL_DATA_CACHE
+        IS_HOT_RUNNING = True
+        HOT_PROGRESS = 0
+        try:
+            def update_cb(p):
+                global HOT_PROGRESS
+                HOT_PROGRESS = p
+            
+            HOT_MGR.run_full_update(progress_cb=update_cb)
+            
+            GLOBAL_DATA_CACHE = None
+            HOT_PROGRESS = 100
+        except Exception as e:
+            print(f"地圖同步失敗: {e}")
+        finally:
+            IS_HOT_RUNNING = False
+
+    threading.Thread(target=run_task, daemon=True).start()
+    return jsonify({"status": "started", "message": "產業地圖同步已在背景啟動"})
+
+@app.route('/api/hot_map')
+def get_hot_map_api():
+    global GLOBAL_DATA_CACHE
+    
+    if GLOBAL_DATA_CACHE and "hot_map" in GLOBAL_DATA_CACHE:
+        if GLOBAL_DATA_CACHE["hot_map"].get("top5"):
+            return jsonify(GLOBAL_DATA_CACHE["hot_map"])
+
+    print("[系統] 前端正在請求熱門產業，嘗試從現有地圖計算...")
+    
+    target_date = GLOBAL_DATA_CACHE.get("date") if GLOBAL_DATA_CACHE else datetime.now().strftime("%Y%m%d")
+    
+    try:
+        hot_result = HOT_MGR.get_hot_industry_data(target_date, GLOBAL_STOCK_DB)
+        
+        if hot_result and hot_result.get("top5"):
+            if GLOBAL_DATA_CACHE:
+                GLOBAL_DATA_CACHE["hot_map"] = hot_result
+            else:
+                GLOBAL_DATA_CACHE = {"date": target_date, "hot_map": hot_result}
+            
+            return jsonify(hot_result)
+    except Exception as e:
+        print(f"[HotMap] 主動計算失敗: {e}")
+    return jsonify({"status": "loading", "message": "正在計算金流矩陣"}), 202
+
+@app.route('/api/hot_progress')
+def get_hot_progress():
+    global HOT_PROGRESS, IS_HOT_RUNNING
+    return jsonify({"progress": HOT_PROGRESS, "is_running": IS_HOT_RUNNING})
 
 if __name__ == '__main__':
     threading.Thread(target=scrape_all_yahoo_classes, daemon=True).start()

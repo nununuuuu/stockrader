@@ -66,7 +66,6 @@ def get_disposition_list():
             for item in data:
                 sid = str(item.get('Code', '')).strip()
                 if sid: dispo_stocks.add(sid)
-        print("上市處置同步成功")
     except Exception as e:
         print(f"上市處置同步異常: {e}")
 
@@ -78,7 +77,6 @@ def get_disposition_list():
             for item in data:
                 sid = str(item.get('SecuritiesCompanyCode', '')).strip()
                 if sid: dispo_stocks.add(sid)
-        print("上櫃處置同步成功")
     except Exception as e:
         print(f"上櫃處置同步異常: {e}")
 
@@ -90,7 +88,6 @@ def get_disposition_list():
             for item in data:
                 sid = str(item.get('證券代號', '')).strip()
                 if sid: dispo_stocks.add(sid)
-        print("興櫃處置同步成功")
     except Exception as e:
         print(f"興櫃處置同步異常: {e}")
 

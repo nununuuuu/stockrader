@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 // ==========================================
-// 🌟 顏色配置區：方便你直接修改 Hex 色碼
+// 顏色配置區：方便你直接修改 Hex 色碼
 // ==========================================
 const TAG_THEMES = {
   electronics: { bg: "#e0f2fe", text: "#0369a1", border: "#bae6fd", label: "電子" },
@@ -126,6 +126,7 @@ const getVixStatus = (val) => {
 
 export default function App() {
   const [data, setData] = useState(null);
+  const [hotMapData, setHotMapData] = useState(null);
   const [radarData, setRadarData] = useState(null);
   const [initProgress, setInitProgress] = useState({ percentage: 0, current_item: "", is_done: false });
   const [tab, setTab] = useState('radar');
@@ -148,6 +149,7 @@ export default function App() {
             clearInterval(progressTimer);
             fetchMainData();
             fetchRadarData();
+            fetchHotMapData();
           }
         })
         .catch(err => console.error("進度輪詢失敗"));
@@ -155,6 +157,11 @@ export default function App() {
     return () => clearInterval(progressTimer);
   }, []);
 
+  useEffect(() => {
+    if (tab === 'hot' && !hotMapData) {
+      fetch(`${API_BASE}/api/hot_map`).then(res => res.json()).then(setHotMapData);
+    }
+  }, [tab, hotMapData]);
 
   const fetchMainData = () => {
     fetch(`${API_BASE}/api/data`).then(res => (res.status === 202 ? null : res.json())).then(d => { if (d) setData(d); });
@@ -163,6 +170,11 @@ export default function App() {
   const fetchRadarData = () => {
     fetch(`${API_BASE}/api/radar`).then(res => res.json()).then(setRadarData);
   };
+
+  const fetchHotMapData = () => {
+    fetch(`${API_BASE}/api/hot_map`).then(res => res.json()).then(setHotMapData);
+  };
+
 
   if (!data && !initProgress.is_done) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
@@ -230,7 +242,7 @@ export default function App() {
           </div>
         </div>
         <div className="flex bg-white border border-slate-200 rounded-2xl p-1 shadow-sm h-14 items-center overflow-x-auto">
-          {[{ id: 'radar', l: '台股雷達' }, { id: 'sectors', l: '族群資金' }, { id: 'total', l: '法人總計' }, { id: 'foreign', l: '外資' }, { id: 'trust', l: '投信' }, { id: 'dealer', l: '自營' }].map(t => (
+          {[{ id: 'radar', l: '台股雷達' }, { id: 'hot', l: '熱門資金' }, { id: 'sectors', l: '族群資金' }, { id: 'total', l: '法人總計' }, { id: 'foreign', l: '外資' }, { id: 'trust', l: '投信' }, { id: 'dealer', l: '自營' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} className={`px-6 h-10 rounded-xl text-sm font-black transition whitespace-nowrap ${tab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>{t.l}</button>
           ))}
         </div>
@@ -402,7 +414,7 @@ export default function App() {
                 <div className="flex flex-col">
                   <span className="text-[10px] text-slate-400 font-black uppercase leading-none mb-0.5">融資增減</span>
                   <div className={`text-xl font-black font-mono leading-none ${data?.margin?.financing >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {data?.margin?.financing !== null ? formatBillion(data.margin.financing) : "--.--"}
+                    {(data?.margin && data.margin.financing !== undefined) ? formatBillion(data.margin.financing) : "--.--"}
                     <span className="text-[11px] ml-0.5 opacity-40">億</span>
                   </div>
                 </div>
@@ -412,7 +424,7 @@ export default function App() {
                 <div className="flex flex-col">
                   <span className="text-[10px] text-slate-400 font-black uppercase leading-none mb-0.5">融券增減</span>
                   <div className={`text-xl font-black font-mono leading-none ${data?.margin?.short_selling >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {data?.margin?.short_selling !== null ? formatK(data.margin.short_selling) : "--"}
+                    {(data?.margin && data.margin.short_selling !== undefined) ? formatK(data.margin.short_selling) : "--"}
                     <span className="text-[11px] ml-0.5 opacity-40">張</span>
                   </div>
                 </div>
@@ -449,16 +461,27 @@ export default function App() {
 
       {/* 分頁內容 */}
       <div className="transition-all duration-300">
+        {tab === 'hot' && (
+          <HotMapView
+            data={hotMapData}
+            onUpdateComplete={() => {
+              fetchMainData();    
+              fetchHotMapData(); 
+            }}
+          />
+        )}
         {tab === 'radar' && <RadarView data={radarData} onScanComplete={(val) => { if (val === null) setRadarData(null); else fetchRadarData(); }} />}
         {tab === 'sectors' && <SectorView data={data?.sectors} />}
-        {(tab !== 'radar' && tab !== 'sectors') && <RankingView list={currentList} type={tab} excludeETF={excludeETF} data={data} />}
+        {(tab !== 'radar' && tab !== 'sectors' && tab !== 'hot') && (
+          <RankingView list={currentList} type={tab} excludeETF={excludeETF} data={data} />
+        )}
       </div>
     </div>
   );
 }
 
 // ==========================================
-// 🌟 排行榜：上下佈局 & 顏色過濾
+// 排行榜：上下佈局 & 顏色過濾
 // ==========================================
 function RankingView({ list, type, excludeETF, data }) {
   const [expandedId, setExpandedId] = useState(null);
@@ -571,7 +594,7 @@ function RankingView({ list, type, excludeETF, data }) {
     </div>);
 }
 // ==========================================
-// 🌟 雷達頁面：強化監控標籤與籌碼動向
+// 雷達頁面：強化監控標籤與籌碼動向
 // ==========================================
 function RadarView({ data, onScanComplete }) {
   const [activeKey, setActiveKey] = useState('steady');
@@ -793,7 +816,7 @@ function RadarView({ data, onScanComplete }) {
 }
 
 // ==========================================
-// 🌟 族群頁面：同步顏色與自營商顯示
+// 族群頁面：同步顏色與自營商顯示
 // ==========================================
 function SectorView({ data }) {
   const [expandedSector, setExpandedSector] = useState(null);
@@ -843,3 +866,209 @@ function SectorView({ data }) {
     </div>
   );
 }
+
+// ==========================================
+// 熱門產業金流分頁組件
+// ==========================================
+function HotMapView({ data, onUpdateComplete }) {
+  // 1. 統一狀態管理
+  const [hotProgress, setHotProgress] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const { resonance = [], top5 = [], others = [] } = data || {};
+
+  // 2. 自動輪詢邏輯：監控後端進度
+  useEffect(() => {
+    let timer;
+    if (isSyncing) {
+      timer = setInterval(async () => {
+        try {
+          const res = await fetch("http://localhost:5000/api/hot_progress");
+          const d = await res.json();
+          setHotProgress(d.progress);
+
+          // 當後端回報停止執行且進度達到 100
+          if (!d.is_running && d.progress === 100) {
+            setIsSyncing(false);
+            setMsg("更新完成！正在刷新數據...");
+            clearInterval(timer);
+
+            // 💡 關鍵：呼叫父組件傳進來的刷新函數 (fetchMainData)
+            if (onUpdateComplete) {
+              setTimeout(() => {
+                onUpdateComplete();
+                setMsg("");
+              }, 1000);
+            }
+          }
+        } catch (err) {
+          console.error("輪詢失敗", err);
+        }
+      }, 2000); // 每 2 秒問一次
+    }
+    return () => clearInterval(timer);
+  }, [isSyncing, onUpdateComplete]);
+
+  // 3. 手動更新處理
+  const handleManualUpdate = async () => {
+    if (!window.confirm("確定要更新全台股產業地圖嗎？預計需時 2 分鐘。")) return;
+
+    setIsSyncing(true);
+    setHotProgress(0);
+    setMsg("正在啟動背景同步任務...");
+
+    try {
+      await fetch("http://localhost:5000/api/admin/update_industry_map", { method: 'POST' });
+    } catch (err) {
+      setMsg("連線失敗");
+      setIsSyncing(false);
+    }
+  };
+
+  // 4. 加載中狀態處理 (僅在完全沒資料且也沒在同步時顯示)
+  if ((!data || data === "loading") && !isSyncing) {
+    return (
+      <div className="py-40 text-center flex flex-col items-center">
+        <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">數據計算中...</p>
+      </div>
+    );
+  }
+
+  // 子組件：液體卡片 (保持不變)
+  const LiquidCard = ({ item, isResonance, isHero }) => {
+    const isUp = item.change >= 0;
+    const liquidColor = isUp ? '#f87171' : '#34d399';
+    const textColor = isUp ? 'text-red-500' : 'text-green-600';
+    const fillLevel = Math.min((item.flow || item.total_flow) * 2.0 + 12, 95);
+    const encodedColor = encodeURIComponent(liquidColor);
+    const waveSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 20'%3E%3Cpath d='M0 10 Q100 0 200 10 T400 10 L400 20 L0 20 Z' fill='${encodedColor}'/%3E%3C/svg%3E`;
+
+    let containerClass = "relative overflow-hidden transition-all duration-300 shadow-sm ";
+  if (isResonance) {
+    // 共振卡片：寬矩形，較大
+    containerClass += "bg-white border-2 border-amber-400/30 rounded-[28px] resonance-pulse h-[160px] col-span-2 md:col-span-1";
+  } else if (isHero) {
+    // 領頭羊卡片：正方形，中等
+    containerClass += "bg-white border border-slate-100 rounded-[20px] aspect-square hover:shadow-md";
+  } else {
+    // 矩陣卡片：正方形，小
+    containerClass += "bg-white border border-slate-100 rounded-lg aspect-square p-2";
+  }
+
+    return (
+      <div className={containerClass}>
+        <div className="absolute bottom-0 left-0 w-full transition-all duration-[2s] ease-in-out z-0" style={{ height: `${fillLevel}%`, backgroundColor: liquidColor }}>
+          <div className="absolute top-[-15px] left-0 w-[200%] h-5 animate-waveSlide" style={{ backgroundImage: `url("${waveSvg}")`, backgroundSize: '50% 100%' }}></div>
+        </div>
+        <div className="relative z-10 h-full flex flex-col justify-between p-3 pointer-events-none">
+          <div className="flex justify-between items-start">
+            <span className={`text-[9px] font-black uppercase tracking-tighter ${isResonance ? 'text-amber-600' : 'text-slate-400'}`}>{isResonance ? `Resonance` : isHero ? `Top Focus` : ''}</span>
+            <span className={`text-[10px] font-black ${isHero || isResonance ? 'text-white drop-shadow-md' : textColor}`}>{isUp ? '▲' : '▼'} {Math.abs(item.change).toFixed(1)}%</span>
+          </div>
+          <div className="mt-auto">
+            <h4 className={`${isHero || isResonance ? 'text-lg' : 'text-[10px]'} font-black text-slate-800 leading-tight`}>{item.name}</h4>
+            <div className={`${isHero || isResonance ? 'text-3xl' : 'text-base'} font-black text-slate-900 tracking-tighter`}>{item.flow || item.total_flow}<span className="text-[10px] ml-0.5 opacity-40">%</span></div>
+          </div>
+          <div className="mt-1">
+            {isResonance ? (
+              <div className="flex flex-wrap gap-1">
+                {item.sectors.map((s, i) => (<span key={i} className="text-[8px] bg-black/5 px-1.5 py-0.5 rounded-md text-slate-600 font-bold border border-black/5">{s}</span>))}
+              </div>
+            ) : <p className={`text-[9px] truncate font-bold ${isHero ? 'text-white/80' : 'text-slate-400'}`}>{item.path}</p>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="animate-fadeIn space-y-12 pb-20 relative">
+
+      {/* 🌟 核心：進度條顯示區 (與雷達邏輯對齊) */}
+      {isSyncing && (
+        <div className="sticky top-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl border border-blue-400 flex items-center justify-between mb-8 animate-bounce">
+          <div className="flex items-center gap-4">
+            <div className="w-32 h-2 bg-blue-800 rounded-full overflow-hidden border border-blue-500">
+              <div className="h-full bg-white transition-all duration-500" style={{ width: `${hotProgress}%` }}></div>
+            </div>
+            <span className="text-xs font-black font-mono">MAP SYNCING: {hotProgress}%</span>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">正在解析產業價值鏈...</span>
+        </div>
+      )}
+
+      {/* 1. 共振核心個股 */}
+      {resonance.length > 0 && (
+        <section>
+          <header className="mb-4 flex items-baseline gap-3">
+            <h2 className="text-xl font-black text-amber-600 tracking-tighter">多產業共振核心</h2>
+            <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Resonance Hubs</span>
+          </header>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
+            {resonance.map((s) => <LiquidCard key={s.id} item={s} isResonance={true} />)}
+          </div>
+        </section>
+      )}
+
+      {/* 2. 今日領頭羊 */}
+      <section>
+        <header className="mb-4 flex items-baseline justify-between px-2">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-xl font-black text-blue-900 tracking-tighter">今日價量領頭羊</h2>
+            <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Top 5 Leaders</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {msg && <span className="text-[10px] font-bold text-amber-500 animate-pulse">{msg}</span>}
+            <button
+              onClick={handleManualUpdate}
+              disabled={isSyncing}
+              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
+            >
+              <svg className={`w-3 h-3 text-slate-400 group-hover:text-blue-500 ${isSyncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-[10px] font-black text-slate-400 group-hover:text-slate-600 uppercase tracking-tighter">
+                {isSyncing ? '同步中' : '更新產業地圖'}
+              </span>
+            </button>
+          </div>
+        </header>
+
+        {/* 💡 掃描時顯示佔位符，掃描完自動替換為資料 */}
+        {resonance.length === 0 && isSyncing ? (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
+            {[1, 2, 3, 4, 5].map(i => <div key={i} className="aspect-square bg-slate-100 rounded-[20px] animate-pulse"></div>)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
+            {top5.map((d, i) => <LiquidCard key={i} item={d} isHero={true} />)}
+          </div>
+        )}
+      </section>
+
+      {/* 3. 全產業監測 */}
+      <section>
+        <header className="mb-4 flex items-baseline gap-3 opacity-50">
+          <h2 className="text-sm font-black text-slate-500 uppercase">全市場金流矩陣</h2>
+          <span className="text-slate-400 text-[9px] tracking-widest font-black">FULL MATRIX</span>
+        </header>
+        <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-10 gap-3">
+          {others.map((d, i) => <LiquidCard key={i} item={d} isHero={false} />)}
+        </div>
+      </section>
+
+      <style>{`
+        @keyframes waveSlide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .animate-waveSlide { animation: waveSlide 4s linear infinite; }
+        @keyframes resonancePulse { 0%, 100% { border-color: rgba(245, 158, 11, 0.3); } 50% { border-color: rgba(245, 158, 11, 0.7); } }
+        .resonance-pulse { animation: resonancePulse 2s infinite; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
+      `}</style>
+    </div>
+  );
+}
+
