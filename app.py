@@ -354,29 +354,33 @@ def get_main_data():
             # 2. 抓取同步數據
             taiex = get_taiex_info(d_twse)
             sentiment = get_sentiment_data()
-            margin_map = get_official_margin_details(d_twse)
+            margin_map = get_official_margin_details(d_twse) # 💡 這裡拿到了個股融資明細
 
             stale_warnings = []
             if sentiment["actual_date"] and sentiment["actual_date"] != d_twse: stale_warnings.append(f"情緒({sentiment['actual_date']})")
             if board["date"] != d_twse: stale_warnings.append(f"資券總額({board['date']})")
 
-            # 3. 🌟 解決上櫃排行消失問題
+            # 3. 處理上市櫃排行資料
             df_tse = pd.DataFrame(tse_res['data'])
             df_tse = pd.DataFrame({'stock_id': df_tse.iloc[:, 0].str.strip(), 'stock_name': df_tse.iloc[:, 1].str.strip(), 'foreign': df_tse.iloc[:, 4].apply(clean_num)/1000, 'trust': df_tse.iloc[:, 10].apply(clean_num)/1000, 'dealer': df_tse.iloc[:, 11].apply(clean_num)/1000, 'total': df_tse.iloc[:, 18].apply(clean_num)/1000, 'market': 'tse'})
             
-            # 修正：精準對應櫃買中心 JSON
             otc_url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_tpex}"
             otc_json = requests.get(otc_url, headers=HEADERS).json()
             otc_rows = otc_json.get('aaData', []) or otc_json.get('data', []) or (otc_json.get('tables', [{}])[0].get('data', []) if 'tables' in otc_json else [])
-            
             df_otc = pd.DataFrame({'stock_id': [str(r[0]).strip() for r in otc_rows], 'stock_name': [str(r[1]).strip() for r in otc_rows], 'foreign': [clean_num(r[4])/1000 for r in otc_rows], 'trust': [clean_num(r[13])/1000 for r in otc_rows], 'dealer': [clean_num(r[22])/1000 for r in otc_rows], 'total': [clean_num(r[23])/1000 for r in otc_rows], 'market': 'otc'})
 
             df = pd.concat([df_tse, df_otc], ignore_index=True).fillna(0)
-            df['raw_id'] = df['stock_id'].astype(str).str.strip()
-            df['is_etf'] = df['raw_id'].apply(lambda x: len(x) != 4 or x.startswith('00'))
-            df['stock_id'] = df['raw_id'].apply(lambda x: "".join(filter(str.isdigit, x)))
-            df['margin'] = df['stock_id'].apply(lambda x: margin_map.get(x, {"f_change":0, "s_change":0}))
+            df['stock_id'] = df['stock_id'].astype(str).str.strip().apply(lambda x: "".join(filter(str.isdigit, x)))
+            df['is_etf'] = df['stock_id'].apply(lambda x: len(x) != 4 or x.startswith('00'))
             
+            # --- 💡 這裡開始準備傳給 HOT_MGR 的資料 ---
+            
+            # 建立個股法人籌碼字典
+            current_chip_map = {
+                str(r['stock_id']): {'total': r['total']} 
+                for _, r in df.iterrows()
+            }
+
             def get_stock_profile(sid):
                 tags = GLOBAL_STOCK_DB.get(sid, {"electronics":"", "concepts":"", "group":"", "basic":""})
                 clean_tags = {k: str(v).strip() for k, v in tags.items()}
@@ -393,52 +397,43 @@ def get_main_data():
             up_stocks = len(df[(df['total'] > 0) & (~df['is_etf'])])
             down_stocks = len(df[(df['total'] < 0) & (~df['is_etf'])])
             
-            # 建立訊號邏輯
             inst_sig = "買盤力道強勁" if board["inst_total"] > 0 else "買盤尚未回流"
             margin_sig = "交投平淡"
-            if board["margin_f"] < 0 and board["inst_total"] > 0:
-                margin_sig = "籌碼換手乾淨"
-            elif board["margin_f"] > 50:
-                margin_sig = "情緒過熱"
-            elif board["margin_f"] > 0 and board["inst_total"] < 0:
-                margin_sig = "散戶接盤"
+            if board["margin_f"] < 0 and board["inst_total"] > 0: margin_sig = "籌碼換手乾淨"
+            elif board["margin_f"] > 50: margin_sig = "情緒過熱"
+            elif board["margin_f"] > 0 and board["inst_total"] < 0: margin_sig = "散戶接盤"
                 
-            # 5. 族群統計 (非互斥)
+            # 5. 族群統計
             sector_dict = {}
             for _, row in df[~df['is_etf']].iterrows():
                 for t_name in set(v for v in row['all_tags'].values() if v and v != "一般個股"):
-                    if t_name not in sector_dict: 
-                        sector_dict[t_name] = {"total":0.0, "f":0.0, "t":0.0, "d":0.0, "comps":[]}
+                    if t_name not in sector_dict: sector_dict[t_name] = {"total":0.0, "f":0.0, "t":0.0, "d":0.0, "comps":[]}
                     s = sector_dict[t_name]
-                    s["total"] += float(row['total'])
-                    s["f"] += float(row['foreign'])
-                    s["t"] += float(row['trust'])
-                    s["d"] += float(row['dealer'])
+                    s["total"] += float(row['total']); s["f"] += float(row['foreign']); s["t"] += float(row['trust']); s["d"] += float(row['dealer'])
                     s["comps"].append({"stock_id": row['stock_id'], "stock_name": row['stock_name'], "total": row['total']})
 
             sector_list = []
             for name, s in sector_dict.items():
                 if abs(s["total"]) < 1: continue
-                sector_list.append({
-                    "name": name, 
-                    "total": round(s["total"],0), 
-                    "foreign": round(s["f"],0), 
-                    "trust": round(s["t"],0), 
-                    "dealer": round(s["d"],0), 
-                    "top_components": sorted(s["comps"], key=lambda x: x['total'], reverse=True)[:5]
-                })
+                sector_list.append({"name": name, "total": round(s["total"],0), "foreign": round(s["f"],0), "trust": round(s["t"],0), "dealer": round(s["d"],0), "top_components": sorted(s["comps"], key=lambda x: x['total'], reverse=True)[:5]})
 
-            # --- 6. 外部組件 (熱門產業) ---
+            # --- 6. 外部組件 (熱門產業：帶入法人與融資合力) ---
             try:
-                hot_result = HOT_MGR.get_hot_industry_data(d_twse, GLOBAL_STOCK_DB)
-            except:
+                # 💡 傳入剛剛準備好的 chip_map 與 margin_map
+                hot_result = HOT_MGR.get_hot_industry_data(
+                    d_twse, 
+                    GLOBAL_STOCK_DB, 
+                    chip_map=current_chip_map, 
+                    margin_map=margin_map
+                )
+            except Exception as e:
+                print(f"熱門產業計算失敗: {e}")
                 hot_result = {"resonance": [], "top5": [], "others": []}
 
             # --- 7. 排行榜格式化 ---
             clean_records = json.loads(df.to_json(orient='records'))
             def gen_rank(c):
-                t = [r for r in clean_records if r['market']=='tse']
-                o = [r for r in clean_records if r['market']=='otc']
+                t, o = [r for r in clean_records if r['market']=='tse'], [r for r in clean_records if r['market']=='otc']
                 return {
                     "tse_b": sorted([r for r in t if r[c]>0], key=lambda x:x[c], reverse=True)[:100],
                     "tse_s": sorted([r for r in t if r[c]<0], key=lambda x:x[c])[:100],
@@ -446,34 +441,22 @@ def get_main_data():
                     "otc_s": sorted([r for r in o if r[c]<0], key=lambda x:x[c])[:100]
                 }
 
-            # --- 🌟 8. 最終資料封裝 (直接引用上方變數) ---
+            # --- 8. 最終資料封裝 ---
             final_data = {
                 "date": str(d_twse),
                 "taiex": taiex,
                 "sentiment": sentiment,
                 "hot_map": hot_result or {"resonance": [], "top5": [], "others": []},
-                "summary": {
-                    "foreign": board["inst_f"], 
-                    "trust": board["inst_t"], 
-                    "dealer": board["inst_d"], 
-                    "total": board["inst_total"]
-                },
-                "margin": {
-                    "financing": board["margin_f"], 
-                    "short_selling": board["margin_s"], 
-                    "ratio": board["ratio"], 
-                    "tse_ratio": board["tse_ratio"], 
-                    "otc_ratio": board["otc_ratio"]
-                },
+                "chip_map": current_chip_map, 
+                "margin_map": margin_map,
+                "summary": {"foreign": board["inst_f"], "trust": board["inst_t"], "dealer": board["inst_d"], "total": board["inst_total"]},
+                "margin": {"financing": board["margin_f"], "short_selling": board["margin_s"], "ratio": board["ratio"], "tse_ratio": board["tse_ratio"], "otc_ratio": board["otc_ratio"]},
                 "sectors": {
                     "buy": sorted([s for s in sector_list if s['total']>0], key=lambda x:x['total'], reverse=True)[:15],
                     "sell": sorted([s for s in sector_list if s['total']<0], key=lambda x:x['total'])[:15]
                 },
                 "rankings": {
-                    "total": gen_rank('total'), 
-                    "foreign": gen_rank('foreign'), 
-                    "trust": gen_rank('trust'), 
-                    "dealer": gen_rank('dealer')
+                    "total": gen_rank('total'), "foreign": gen_rank('foreign'), "trust": gen_rank('trust'), "dealer": gen_rank('dealer')
                 },
                 "breadth": {"up": up_stocks, "down": down_stocks},
                 "signals": {"inst": inst_sig, "margin": margin_sig},
@@ -485,7 +468,6 @@ def get_main_data():
                 }
             }
 
-
             GLOBAL_DATA_CACHE = final_data
             
             # 啟動雷達
@@ -494,6 +476,7 @@ def get_main_data():
                 threading.Thread(target=run_radar_background, args=(ing["chip_map"], ing["top_sectors"], GLOBAL_STOCK_DB, d_twse), daemon=True).start()
 
             return jsonify(GLOBAL_DATA_CACHE)
+            
         except Exception as e:
             print(f"處理錯誤: {e}")
             continue
@@ -547,27 +530,28 @@ def force_update_industry_map():
 def get_hot_map_api():
     global GLOBAL_DATA_CACHE
     
+    # 1. 檢查最終成品
     if GLOBAL_DATA_CACHE and "hot_map" in GLOBAL_DATA_CACHE:
-        if GLOBAL_DATA_CACHE["hot_map"].get("top5"):
+        if GLOBAL_DATA_CACHE["hot_map"].get("top5") or GLOBAL_DATA_CACHE["hot_map"].get("others"):
             return jsonify(GLOBAL_DATA_CACHE["hot_map"])
 
-    print("[系統] 前端正在請求熱門產業，嘗試從現有地圖計算...")
-    
-    target_date = GLOBAL_DATA_CACHE.get("date") if GLOBAL_DATA_CACHE else datetime.now().strftime("%Y%m%d")
-    
-    try:
-        hot_result = HOT_MGR.get_hot_industry_data(target_date, GLOBAL_STOCK_DB)
-        
-        if hot_result and hot_result.get("top5"):
-            if GLOBAL_DATA_CACHE:
+    # 2. 💡 主動補位邏輯：如果原料已經就緒（chip_map），但 hot_map 還是空的
+    if GLOBAL_DATA_CACHE and "chip_map" in GLOBAL_DATA_CACHE:
+        print("🔄 [系統] 偵測到原料已就緒，主動執行熱門產業計算...")
+        try:
+            hot_result = HOT_MGR.get_hot_industry_data(
+                GLOBAL_DATA_CACHE["date"],
+                GLOBAL_STOCK_DB,
+                chip_map=GLOBAL_DATA_CACHE["chip_map"],
+                margin_map=GLOBAL_DATA_CACHE["margin_map"]
+            )
+            if hot_result:
                 GLOBAL_DATA_CACHE["hot_map"] = hot_result
-            else:
-                GLOBAL_DATA_CACHE = {"date": target_date, "hot_map": hot_result}
-            
-            return jsonify(hot_result)
-    except Exception as e:
-        print(f"[HotMap] 主動計算失敗: {e}")
-    return jsonify({"status": "loading", "message": "正在計算金流矩陣"}), 202
+                return jsonify(hot_result)
+        except Exception as e:
+            print(f"❌ 主動計算失敗: {e}")
+
+    return jsonify({"status": "loading"}), 202
 
 @app.route('/api/hot_progress')
 def get_hot_progress():

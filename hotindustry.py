@@ -205,58 +205,109 @@ class HotIndustryManager:
             
         return stock_data, total_amt
 
-    def get_hot_industry_data(self, date_str, current_db):
-        """ 核心：計算共振股、領頭羊、金流矩陣 """
-        
-        if not self.value_chain_map: # 若無地圖，嘗試載入
+    def get_hot_industry_data(self, date_str, current_db, chip_map, margin_map):
+        """
+        chip_map: 來自 app.py 的法人買賣超 (單位: 張)
+        margin_map: 來自 app.py 的融資增減 (單位: 張)
+        """
+        if not self.value_chain_map:
             self._load_cache_or_check_update()
-            if not self.value_chain_map: return None
-        self.industry_db = current_db 
+            if not self.value_chain_map: return {"resonance": [], "top5": [], "others": []}
+
         stock_prices, total_mkt_amount = self.fetch_market_prices(date_str)
-        if total_mkt_amount == 0: return None
+        if total_mkt_amount == 0: return {"resonance": [], "top5": [], "others": []}
 
-        # 1. 共振股篩選 (成交前10 且 存在於多個子產業)
-        sorted_stocks = sorted(stock_prices.items(), key=lambda x: x[1]['amount'], reverse=True)[:10]
-        resonance_list = []
-        for sid, info in sorted_stocks:
-            profile = self.industry_db.get(sid, {})
-            # 取得所有非空標籤 (排除一般個股)
-            tags = [v for k, v in profile.items() if v and v != "一般個股"]
-            if len(set(tags)) > 1:
-                resonance_list.append({
-                    "id": sid, "name": info["name"], "change": info["change_pct"],
-                    "total_flow": round((info["amount"] / total_mkt_amount) * 100, 2),
-                    "sectors": list(set(tags))
-                })
-
-        # 2. 產業大類聚合
         industry_agg = {}
         for sid, info in stock_prices.items():
             paths = self.value_chain_map.get(sid, [])
             if not paths: continue
             
-            # 統計所有關聯的產業大類
+            # 💡 確保這裡抓得到的資料與 app.py 傳入的一致
+            inst_net = chip_map.get(sid, {}).get('total', 0)
+            retail_net = margin_map.get(sid, {}).get('f_change', 0) 
+            combined_force = inst_net + retail_net
+
             for p in paths:
                 name = p['main']
                 if name not in industry_agg:
-                    industry_agg[name] = {"amount": 0.0, "changes": [], "sub_paths": {}}
+                    industry_agg[name] = {
+                        "amount": 0.0, "changes": [], "sub_paths": {}, "net_force": 0.0 
+                    }
+            
+                # 💡 修正：這幾行必須在 if 外面，才能累加該產業所有股票的數據
                 industry_agg[name]["amount"] += info["amount"]
                 industry_agg[name]["changes"].append(info["change_pct"])
+                industry_agg[name]["net_force"] += combined_force
                 industry_agg[name]["sub_paths"][p['path']] = industry_agg[name]["sub_paths"].get(p['path'], 0) + info["amount"]
 
-        results = []
+        # 取得吸金產業清單 (用於後面篩選與標籤排序)
+        all_industries_list = []
         for name, data in industry_agg.items():
-            best_path = max(data["sub_paths"], key=data["sub_paths"].get) if data["sub_paths"] else "一般"
-            results.append({
-                "name": name, "flow": round((data["amount"] / total_mkt_amount) * 100, 2),
-                "change": round(sum(data["changes"]) / len(data["changes"]), 2),
-                "path": best_path
+            if not data["changes"]: continue
+            all_industries_list.append({
+                "name": name,
+                "flow_val": data["amount"]
             })
 
-        # 3. 領頭羊篩選 (上漲且量大前五)
-        gainers = [r for r in results if r['change'] > 0]
-        top5 = sorted(gainers, key=lambda x: x['flow'], reverse=True)[:5]
-        top5_names = [x['name'] for x in top5]
-        others = sorted([r for r in results if r['name'] not in top5_names], key=lambda x: x['flow'], reverse=True)
+        # 取得成交量前 10 名的產業名稱
+        top_10_names = [x['name'] for x in sorted(all_industries_list, key=lambda x: x['flow_val'], reverse=True)[:10]]
 
-        return {"resonance": resonance_list, "top5": top5, "others": others, "last_update": self.last_update_date}
+        # --- 步驟 2：篩選共振個股 (標籤按熱度排序) ---
+        sorted_stocks = sorted(stock_prices.items(), key=lambda x: x[1]['amount'], reverse=True)[:15]
+        resonance_list = []
+
+        for sid, info in sorted_stocks:
+            paths = self.value_chain_map.get(sid, [])
+            if not paths: continue
+
+            # 篩選出屬於 Top 10 的產業路徑
+            matched_hot_sectors = list(set([p['main'] for p in paths if p['main'] in top_10_names]))
+
+            # 💡 關鍵修正：標籤根據「產業總金流」熱度進行排序
+            # 讓這檔股票身上最吸金的標籤排在最前面
+            matched_hot_sectors.sort(key=lambda s: industry_agg.get(s, {}).get("amount", 0), reverse=True)
+
+            if len(matched_hot_sectors) >= 2:
+                s_inst = chip_map.get(sid, {}).get('total', 0)
+                s_retail = margin_map.get(sid, {}).get('f_change', 0)
+        
+                resonance_list.append({
+                    "id": sid,
+                    "name": info["name"],
+                    "change": info["change_pct"],
+                    "total_flow": round((info["amount"] / total_mkt_amount) * 100, 2),
+                    "sectors": matched_hot_sectors,
+                    "is_net_in": (s_inst + s_retail) > 0
+                })
+
+        # --- 步驟 3：格式化產業大類 (Leaders 篩選邏輯修正) ---
+        results = []
+        for name, data in industry_agg.items():
+            if not data["changes"]: continue
+            best_path = max(data["sub_paths"], key=data["sub_paths"].get)
+            results.append({
+                "name": name,
+                "flow": round((data["amount"] / total_mkt_amount) * 100, 2),
+                "change": round(sum(data["changes"]) / len(data["changes"]), 2),
+                "path": best_path,
+                "is_net_in": data["net_force"] > 0,
+                "net_force": data["net_force"]
+            })
+
+        # 分類與排序
+        leaders_pool = [r for r in results if r['is_net_in'] and r['change'] > 0]
+        top5 = sorted(leaders_pool, key=lambda x: x['flow'], reverse=True)[:5]
+        top5_names = [x['name'] for x in top5]
+        
+        others = sorted(
+            [r for r in results if r['name'] not in top5_names], 
+            key=lambda x: x['net_force'], 
+            reverse=True
+        )
+
+        return {
+            "resonance": sorted(resonance_list, key=lambda x: x['total_flow'], reverse=True)[:5],
+            "top5": top5,
+            "others": others,
+            "last_update": self.last_update_date
+        }

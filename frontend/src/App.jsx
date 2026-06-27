@@ -195,7 +195,7 @@ export default function App() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-black text-blue-900 tracking-tighter">法人資金監測</h1>
+            <h1 className="text-3xl font-black text-blue-900 tracking-tighter">CapitalPulse</h1>
             <div className="flex items-center bg-white border border-slate-200 px-3 py-1 rounded-xl shadow-sm">
               <span className="text-[10px] font-black text-slate-400 mr-1.5 uppercase">DATA REF</span>
               <span className="text-sm font-mono font-black text-slate-600 mr-2">
@@ -465,8 +465,8 @@ export default function App() {
           <HotMapView
             data={hotMapData}
             onUpdateComplete={() => {
-              fetchMainData();    
-              fetchHotMapData(); 
+              fetchMainData();
+              fetchHotMapData();
             }}
           />
         )}
@@ -938,125 +938,147 @@ function HotMapView({ data, onUpdateComplete }) {
 
   // 子組件：液體卡片 (保持不變)
   const LiquidCard = ({ item, isResonance, isHero }) => {
-    const isUp = item.change >= 0;
-    const liquidColor = isUp ? '#f87171' : '#34d399';
-    const textColor = isUp ? 'text-red-500' : 'text-green-600';
-    const fillLevel = Math.min((item.flow || item.total_flow) * 2.0 + 12, 95);
-    const encodedColor = encodeURIComponent(liquidColor);
-    const waveSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 20'%3E%3Cpath d='M0 10 Q100 0 200 10 T400 10 L400 20 L0 20 Z' fill='${encodedColor}'/%3E%3C/svg%3E`;
+  const isUp = item.change >= 0;
+  const waveColor = item.is_net_in ? '#fca5a5' : '#86efac'; 
+  const fillLevel = Math.min((item.flow || item.total_flow) * 2.5 + 15, 95);
+  const encodedColor = encodeURIComponent(waveColor);
+  const waveSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 20'%3E%3Cpath d='M0 10 Q100 0 200 10 T400 10 L400 20 L0 20 Z' fill='${encodedColor}'/%3E%3C/svg%3E`;
 
-    let containerClass = "relative overflow-hidden transition-all duration-300 shadow-sm ";
+  // 💡 調整卡片容器與 Padding
+  let containerClass = "relative overflow-hidden transition-all duration-300 shadow-md border border-slate-100 ";
+  let paddingClass = "p-5"; // 預設
+
   if (isResonance) {
-    // 共振卡片：寬矩形，較大
-    containerClass += "bg-white border-2 border-amber-400/30 rounded-[28px] resonance-pulse h-[160px] col-span-2 md:col-span-1";
+    containerClass += "bg-white rounded-[28px] h-[190px] col-span-2 lg:col-span-1";
   } else if (isHero) {
-    // 領頭羊卡片：正方形，中等
-    containerClass += "bg-white border border-slate-100 rounded-[20px] aspect-square hover:shadow-md";
+    containerClass += "bg-white rounded-[24px] aspect-square hover:shadow-xl";
+    paddingClass = "p-6"; 
   } else {
-    // 矩陣卡片：正方形，小
-    containerClass += "bg-white border border-slate-100 rounded-lg aspect-square p-2";
+    // 💡 小卡片模式：縮小圓角與內距
+    containerClass += "bg-white rounded-2xl aspect-square p-2"; 
+    paddingClass = "p-3"; 
   }
 
-    return (
-      <div className={containerClass}>
-        <div className="absolute bottom-0 left-0 w-full transition-all duration-[2s] ease-in-out z-0" style={{ height: `${fillLevel}%`, backgroundColor: liquidColor }}>
-          <div className="absolute top-[-15px] left-0 w-[200%] h-5 animate-waveSlide" style={{ backgroundImage: `url("${waveSvg}")`, backgroundSize: '50% 100%' }}></div>
+  return (
+    <div className={containerClass}>
+      <div className="absolute bottom-0 left-0 w-full transition-all duration-[2s] ease-in-out z-0" 
+           style={{ height: `${fillLevel}%`, backgroundColor: waveColor }}>
+        <div className="absolute top-[-15px] left-0 w-[200%] h-5 animate-waveSlide" 
+             style={{ backgroundImage: `url("${waveSvg}")`, backgroundSize: '50% 100%' }}></div>
+      </div>
+
+      {/* 💡 使用動態的 paddingClass */}
+      <div className={`relative z-10 h-full flex flex-col pointer-events-none ${paddingClass}`}>
+        
+        {/* 頂部區域 */}
+        <div className="flex justify-between items-start">
+          <span className="text-[9px] font-black uppercase tracking-tighter text-slate-400">
+            {isResonance ? 'Resonance' : ''}
+          </span>
+          <span className={`font-black bg-white/80 px-1.5 py-0.5 rounded shadow-sm border border-white/50 ${isUp ? 'text-red-500' : 'text-emerald-600'} ${isHero ? 'text-[11px]' : 'text-[9px]'}`}>
+            {isUp ? '▲' : '▼'} {Math.abs(item.change).toFixed(1)}%
+          </span>
         </div>
-        <div className="relative z-10 h-full flex flex-col justify-between p-3 pointer-events-none">
-          <div className="flex justify-between items-start">
-            <span className={`text-[9px] font-black uppercase tracking-tighter ${isResonance ? 'text-amber-600' : 'text-slate-400'}`}>{isResonance ? `Resonance` : isHero ? `Top Focus` : ''}</span>
-            <span className={`text-[10px] font-black ${isHero || isResonance ? 'text-white drop-shadow-md' : textColor}`}>{isUp ? '▲' : '▼'} {Math.abs(item.change).toFixed(1)}%</span>
+
+        {/* 主體區域 */}
+        <div className={`flex-1 flex flex-col justify-center items-start ${isHero ? 'mt-0' : 'mt-1'}`}>
+          <h4 className={`font-black text-slate-900 leading-tight tracking-tighter
+            ${isResonance ? 'text-2xl' : isHero ? 'text-2xl' : 'text-[12px]'}`}>
+            {item.name}
+          </h4>
+          
+          <div className="flex items-baseline gap-0.5">
+            <span className={`font-black tracking-tighter text-slate-900 
+              ${isResonance ? 'text-5xl' : isHero ? 'text-5xl' : 'text-xl'}`}>
+              {item.flow || item.total_flow}
+            </span>
+            <span className={`font-black text-slate-900/60 ${isHero ? 'text-lg' : 'text-[9px]'}`}>%</span>
           </div>
-          <div className="mt-auto">
-            <h4 className={`${isHero || isResonance ? 'text-lg' : 'text-[10px]'} font-black text-slate-800 leading-tight`}>{item.name}</h4>
-            <div className={`${isHero || isResonance ? 'text-3xl' : 'text-base'} font-black text-slate-900 tracking-tighter`}>{item.flow || item.total_flow}<span className="text-[10px] ml-0.5 opacity-40">%</span></div>
-          </div>
-          <div className="mt-1">
-            {isResonance ? (
-              <div className="flex flex-wrap gap-1">
-                {item.sectors.map((s, i) => (<span key={i} className="text-[8px] bg-black/5 px-1.5 py-0.5 rounded-md text-slate-600 font-bold border border-black/5">{s}</span>))}
-              </div>
-            ) : <p className={`text-[9px] truncate font-bold ${isHero ? 'text-white/80' : 'text-slate-400'}`}>{item.path}</p>}
-          </div>
+        </div>
+
+        {/* 底部區域：鏈端標籤 */}
+        <div className={isHero ? "mt-4" : "mt-1"}>
+          {isResonance ? (
+            <div className="flex flex-wrap gap-1">
+              {item.sectors && item.sectors.map((s, i) => (
+                <span key={i} className="bg-white/80 text-slate-900 px-2.5 py-1 rounded-md text-[10px] font-black shadow-sm border border-white/50">
+                  {s}
+                </span>
+              ))}
+            </div>
+          ) : (
+            // 💡 修正：確保在小卡片下路徑依然可見
+            <div className="bg-white/80 backdrop-blur-sm rounded-lg px-2 py-1 inline-block max-w-full shadow-sm border border-white/50">
+              <p className={`font-black uppercase tracking-tighter leading-none text-slate-900
+                ${isHero ? 'text-[13px]' : 'text-[9px]'} break-words line-clamp-2`}>
+                {item.path}
+              </p>
+            </div>
+          )}
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};
 
   return (
     <div className="animate-fadeIn space-y-12 pb-20 relative">
-
-      {/* 🌟 核心：進度條顯示區 (與雷達邏輯對齊) */}
-      {isSyncing && (
-        <div className="sticky top-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl border border-blue-400 flex items-center justify-between mb-8 animate-bounce">
-          <div className="flex items-center gap-4">
-            <div className="w-32 h-2 bg-blue-800 rounded-full overflow-hidden border border-blue-500">
-              <div className="h-full bg-white transition-all duration-500" style={{ width: `${hotProgress}%` }}></div>
-            </div>
-            <span className="text-xs font-black font-mono">MAP SYNCING: {hotProgress}%</span>
-          </div>
-          <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">正在解析產業價值鏈...</span>
-        </div>
-      )}
-
-      {/* 1. 共振核心個股 */}
-      {resonance.length > 0 && (
+      {/* 1. 多產業共振核心 (3欄或大寬卡) */}
+      {data?.resonance?.length > 0 && (
         <section>
           <header className="mb-4 flex items-baseline gap-3">
             <h2 className="text-xl font-black text-amber-600 tracking-tighter">多產業共振核心</h2>
             <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Resonance Hubs</span>
           </header>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-            {resonance.map((s) => <LiquidCard key={s.id} item={s} isResonance={true} />)}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
+            {data.resonance.map((s) => <LiquidCard key={s.id} item={s} isResonance={true} />)}
           </div>
         </section>
       )}
 
-      {/* 2. 今日領頭羊 */}
+      {/* 2. 今日價量領頭羊 (5欄大卡片) */}
       <section>
-        <header className="mb-4 flex items-baseline justify-between px-2">
+        <header className="mb-4 flex items-center justify-between px-2">
           <div className="flex items-baseline gap-3">
             <h2 className="text-xl font-black text-blue-900 tracking-tighter">今日價量領頭羊</h2>
             <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Top 5 Leaders</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            {msg && <span className="text-[10px] font-bold text-amber-500 animate-pulse">{msg}</span>}
-            <button
-              onClick={handleManualUpdate}
-              disabled={isSyncing}
-              className="group flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
-            >
-              <svg className={`w-3 h-3 text-slate-400 group-hover:text-blue-500 ${isSyncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="text-[10px] font-black text-slate-400 group-hover:text-slate-600 uppercase tracking-tighter">
-                {isSyncing ? '同步中' : '更新產業地圖'}
-              </span>
-            </button>
-          </div>
+          {/* 重新抓取地圖按鈕 */}
+          <button
+            onClick={handleManualUpdate}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 group"
+          >
+            <svg className={`w-3 h-3 text-slate-400 group-hover:text-blue-500 ${isSyncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span className="text-[10px] font-black text-slate-400 group-hover:text-slate-600 uppercase">
+              {isSyncing ? `同步中 ${hotProgress}%` : '更新產業地圖'}
+            </span>
+          </button>
         </header>
 
-        {/* 💡 掃描時顯示佔位符，掃描完自動替換為資料 */}
-        {resonance.length === 0 && isSyncing ? (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-            {[1, 2, 3, 4, 5].map(i => <div key={i} className="aspect-square bg-slate-100 rounded-[20px] animate-pulse"></div>)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-            {top5.map((d, i) => <LiquidCard key={i} item={d} isHero={true} />)}
-          </div>
-        )}
+        {/* 領頭羊卡片區 */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
+          {data?.top5?.length > 0 ? (
+            data.top5.map((d, i) => <LiquidCard key={i} item={d} isHero={true} />)
+          ) : (
+            /* 如果沒領頭羊(盤勢極差)，顯示骨架屏 */
+            [1,2,3,4,5].map(i => <div key={i} className="aspect-square bg-slate-100 rounded-[24px] animate-pulse" />)
+          )}
+        </div>
       </section>
 
-      {/* 3. 全產業監測 */}
+      {/* 3. 全市場金流矩陣 (7欄小卡片) */}
       <section>
         <header className="mb-4 flex items-baseline gap-3 opacity-50">
           <h2 className="text-sm font-black text-slate-500 uppercase">全市場金流矩陣</h2>
           <span className="text-slate-400 text-[9px] tracking-widest font-black">FULL MATRIX</span>
         </header>
-        <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-10 gap-3">
-          {others.map((d, i) => <LiquidCard key={i} item={d} isHero={false} />)}
+        {/* 💡 修正為 lg:grid-cols-7 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          {data?.others?.map((d, i) => <LiquidCard key={i} item={d} isHero={false} />)}
         </div>
       </section>
 
