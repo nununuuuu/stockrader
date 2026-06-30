@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import InstitutionalFundPage from './pages/InstitutionalFundPage';
+import SectorGroupPage from './pages/SectorGroupPage';
+import MarketMonitorPage from './pages/MarketMonitorPage';
+import { createPortal } from 'react-dom';
 
-// ==========================================
-// 顏色配置區：方便你直接修改 Hex 色碼
-// ==========================================
+
 const TAG_THEMES = {
   electronics: { bg: "#e0f2fe", text: "#0369a1", border: "#bae6fd", label: "電子" },
   concepts: { bg: "#ffedd5", text: "#c2410c", border: "#fed7aa", label: "概念" },
   group: { bg: "#f3e8ff", text: "#7e22ce", border: "#e9d5ff", label: "集團" },
   basic: { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0", label: "類別" }
 };
-
-// --- 格式化函數 ---
 
 const formatBillion = (n) => {
   if (n === undefined || n === null) return '0.00';
@@ -23,7 +23,7 @@ const formatK = (n) => {
   const absN = Math.abs(n);
   let displayStr = "";
   if (absN >= 10000) {
-    displayStr = (absN / 10000).toFixed(1) + " 萬";
+    displayStr = (absN / 10000).toFixed(2) + " 萬";
   } else {
     displayStr = Math.round(absN).toLocaleString();
   }
@@ -32,8 +32,6 @@ const formatK = (n) => {
 
 const SentimentGauge = ({ score = 50 }) => {
   const s = Math.min(Math.max(score, 0), 100);
-
-  // 級距與配色對應
   const segments = [
     { width: '25%', color: "#fca5a5", label: "極度恐懼", eng: "EXTREME FEAR" },
     { width: '20%', color: "#fecaca", label: "恐懼", eng: "FEAR" },
@@ -41,20 +39,8 @@ const SentimentGauge = ({ score = 50 }) => {
     { width: '20%', color: "#bbf7d0", label: "貪婪", eng: "GREED" },
     { width: '25%', color: "#86efac", label: "極度貪婪", eng: "EXTREME GREED" }
   ];
-
-  // 判定目前狀態文字
-  const getStatus = (val) => {
-    if (val <= 25) return segments[0];
-    if (val <= 45) return segments[1];
-    if (val <= 55) return segments[2];
-    if (val <= 75) return segments[3];
-    return segments[4];
-  };
-  const current = getStatus(s);
-
   return (
     <div className="w-full px-2 py-4">
-      {/* 1. 頂部標籤文字區：解決字體跑出問題 */}
       <div className="flex w-full mb-1.5 text-[10px] font-black text-slate-500 uppercase tracking-tighter">
         <div className="w-[25%] text-center">極度恐懼</div>
         <div className="w-[20%] text-center">恐懼</div>
@@ -62,22 +48,13 @@ const SentimentGauge = ({ score = 50 }) => {
         <div className="w-[20%] text-center">貪婪</div>
         <div className="w-[25%] text-center">極度貪婪</div>
       </div>
-
-      {/* 2. 🌟 核心膠囊進度條 */}
       <div className="relative h-2 w-full flex rounded-full overflow-hidden border border-slate-50">
         {segments.map((seg, i) => (
           <div key={i} style={{ width: seg.width, backgroundColor: seg.color }} className="h-full" />
         ))}
       </div>
-
-      {/* 3. 🌟 三角形指針與數值 */}
       <div className="relative w-full h-6 mt-0.5">
-        {/* 動態位移容器 */}
-        <div
-          className="absolute transition-all duration-1000 ease-out flex flex-col items-center"
-          style={{ left: `${s}%`, transform: 'translateX(-50%)' }}
-        >
-          {/* 向上三角形指針 */}
+        <div className="absolute transition-all duration-1000 ease-out flex flex-col items-center" style={{ left: `${s}%`, transform: 'translateX(-50%)' }}>
           <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-b-[7px] border-b-slate-600"></div>
           <div className="text-xl font-black font-mono text-slate-600 leading-none mt-1">{s}</div>
         </div>
@@ -86,30 +63,18 @@ const SentimentGauge = ({ score = 50 }) => {
   );
 };
 
-
 const MarginRatioGauge = ({ ratio = 0 }) => {
   const r = parseFloat(ratio) || 0;
-  const maxRange = 20;
-  const percentage = Math.min(Math.max(r / maxRange, 0), 1);
   const radius = 22;
   const circumference = radius * Math.PI;
-  const offset = circumference - (percentage * circumference);
-
+  const offset = circumference - (Math.min(Math.max(r / 20, 0), 1) * circumference);
   return (
     <div className="flex flex-col items-center justify-center">
       <div className="relative w-24 h-14">
         <svg viewBox="0 0 50 30" className="w-full h-full">
           <path d="M 5 28 A 20 20 0 0 1 45 28" fill="none" stroke="#f1f5f9" strokeWidth="6" strokeLinecap="round" />
-          <path d="M 5 28 A 20 20 0 0 1 45 28" fill="none"
-            stroke={r > 15 ? "#ef4444" : r > 8 ? "#f59e0b" : "#6366f1"}
-            strokeWidth="6" strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            className="transition-all duration-1000 ease-out" />
-          {/* 🌟 在圓弧中心放 % 數字 */}
-          <text x="50%" y="25" textAnchor="middle" fontSize="10" fontWeight="900" fill="#1e293b" className="font-mono">
-            {r}%
-          </text>
+          <path d="M 5 28 A 20 20 0 0 1 45 28" fill="none" stroke={r > 15 ? "#ef4444" : r > 8 ? "#f59e0b" : "#6366f1"} strokeWidth="6" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} className="transition-all duration-1000 ease-out" />
+          <text x="50%" y="25" textAnchor="middle" fontSize="10" fontWeight="900" fill="#1e293b" className="font-mono">{r}%</text>
         </svg>
       </div>
       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest -mt-2">全市場</span>
@@ -124,20 +89,40 @@ const getVixStatus = (val) => {
   return { label: "中性", color: "bg-emerald-50 text-emerald-600 border-emerald-100" };
 };
 
+const SIDEBAR_GROUPS = [
+  { id: 'funds', label: '法人資金', icon: '🏛️' },
+  { id: 'sectors', label: '族群板塊', icon: '🧩' },
+  { id: 'market', label: '市場監控', icon: '🔭' }
+];
+
 export default function App() {
   const [data, setData] = useState(null);
-  const [hotMapData, setHotMapData] = useState(null);
+  const [valuechainData, setValuechainData] = useState(null);
   const [radarData, setRadarData] = useState(null);
   const [initProgress, setInitProgress] = useState({ percentage: 0, current_item: "", is_done: false });
-  const [tab, setTab] = useState('radar');
+  const [mainTab, setMainTab] = useState('funds'); // 一級側邊欄切換狀態
+  const [subTab, setSubTab] = useState('radar');   // 🌟 二級橫向子 Tab，改由中央廚房全域管理
   const [excludeETF, setExcludeETF] = useState(false);
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
   const API_BASE = "http://localhost:5000";
-  const todayStr = new Date().toLocaleDateString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).replace(/\//g, '');
+  const activeGroupId = mainTab;
+  const activeGroup = SIDEBAR_GROUPS.find(g => g.id === activeGroupId);
+
+  // ========================================================
+  // 🌟 定義子 Tab 切換邏輯 (getSubTabs)
+  // ========================================================
+  const getSubTabs = () => {
+    if (mainTab === 'funds') return [
+      { id: 'radar', l: '台股雷達' }, { id: 'sectors', l: '族群資金' },
+      { id: 'total', l: '法人總計' }, { id: 'foreign', l: '外資' },
+      { id: 'trust', l: '投信' }, { id: 'dealer', l: '自營' }
+    ];
+    if (mainTab === 'sectors') return [
+      { id: 'valuechain', l: '熱門資金' }, { id: 'sector_rank', l: '板塊排行榜' }
+    ];
+    return [];
+  };
 
   useEffect(() => {
     const progressTimer = setInterval(() => {
@@ -149,7 +134,7 @@ export default function App() {
             clearInterval(progressTimer);
             fetchMainData();
             fetchRadarData();
-            fetchHotMapData();
+            fetchValuechainData();
           }
         })
         .catch(err => console.error("進度輪詢失敗"));
@@ -157,24 +142,20 @@ export default function App() {
     return () => clearInterval(progressTimer);
   }, []);
 
-  useEffect(() => {
-    if (tab === 'hot' && !hotMapData) {
-      fetch(`${API_BASE}/api/hot_map`).then(res => res.json()).then(setHotMapData);
-    }
-  }, [tab, hotMapData]);
-
   const fetchMainData = () => {
     fetch(`${API_BASE}/api/data`).then(res => (res.status === 202 ? null : res.json())).then(d => { if (d) setData(d); });
   };
-
   const fetchRadarData = () => {
     fetch(`${API_BASE}/api/radar`).then(res => res.json()).then(setRadarData);
   };
-
-  const fetchHotMapData = () => {
-    fetch(`${API_BASE}/api/hot_map`).then(res => res.json()).then(setHotMapData);
+  const fetchValuechainData = () => {
+    fetch(`${API_BASE}/api/valuechain_map`)
+      .then(res => res.json())
+      .then(d => {
+        // 確保即使拿到的是空的結構也能塞進去，打破 !data 的判斷
+        setValuechainData(d);
+      });
   };
-
 
   if (!data && !initProgress.is_done) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
@@ -187,313 +168,136 @@ export default function App() {
   );
 
   if (!data) return <div className="p-20 text-center font-black animate-pulse text-xl text-slate-400 uppercase tracking-widest font-mono">資料匯總中...</div>;
-  const currentList = data?.rankings?.[tab] || { tse_b: [], tse_s: [], otc_b: [], otc_s: [] };
 
   return (
-    <div className="max-w-[1440px] mx-auto p-4 md:p-6 bg-[#f8fafc] min-h-screen font-sans text-slate-800">
-      {/* 標頭與狀態區 */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-black text-blue-900 tracking-tighter">CapitalPulse</h1>
-            <div className="flex items-center bg-white border border-slate-200 px-3 py-1 rounded-xl shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 mr-1.5 uppercase">DATA REF</span>
-              <span className="text-sm font-mono font-black text-slate-600 mr-2">
-                {data?.date ? `${data.date.slice(0, 4)}/${data.date.slice(4, 6)}/${data.date.slice(6, 8)}` : "----/--/--"}
-              </span>
+    <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 flex">
+      {/* 左側邊欄 */}
+      <aside
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
+        className={`fixed left-0 top-0 h-full bg-white border-r border-slate-200 z-[100] transition-all duration-300 ease-in-out shadow-xl flex flex-col ${isSidebarHovered ? 'w-60' : 'w-[72px]'}`}
+      >
+        <div className="h-20 flex items-center px-5 mb-4 overflow-hidden flex-shrink-0">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex-shrink-0 flex items-center justify-center text-white font-black shadow-lg shadow-blue-200">CP</div>
+          <span className={`ml-4 font-black text-blue-900 tracking-tighter whitespace-nowrap transition-opacity duration-300 ${isSidebarHovered ? 'opacity-100' : 'opacity-0'}`}>CapitalPulse</span>
+        </div>
+        <nav className="flex-1 px-3 space-y-3">
+          {SIDEBAR_GROUPS.map((group) => (
+            <button
+              key={group.id}
+              onClick={() => {
+                setMainTab(group.id);
+                if (group.id === 'funds') {
+                  setSubTab('radar'); // 法人資金預設秀台股雷達
+                } else if (group.id === 'sectors') {
+                  setSubTab('valuechain');   // 族群板塊預設秀熱門資金
+                } else {
+                  setSubTab(null);
+                }
+              }}
+              className={`w-full flex items-center gap-4 p-3 rounded-2xl transition-all relative group ${mainTab === group.id ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                }`}
+            >
+              <span className={`text-2xl flex-shrink-0 transition-transform ${mainTab === group.id ? 'scale-110' : 'group-hover:scale-110'}`}>{group.icon}</span>
+              <span className={`font-black text-sm whitespace-nowrap transition-opacity duration-300 ${isSidebarHovered ? 'opacity-100' : 'opacity-0'}`}>{group.label}</span>
+              {mainTab === group.id && <div className="absolute left-[-12px] w-1.5 h-8 bg-blue-600 rounded-full" />}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-              {/* 🌟 顯示舊資料警告 */}
-              {data?.stale_warnings && data.stale_warnings.length > 0 ? (
-                <div className="flex gap-1">
-                  {data.stale_warnings.map((msg, idx) => {
-                    // 1. 提取訊息中的 8 位數日期
-                    const msgDateMatch = msg.match(/\d{8}/);
-                    const msgDate = msgDateMatch ? msgDateMatch[0] : null;
-                    const refDate = data.date;
-                    // 2. 判定顏色類型
-                    let colorClass = "bg-amber-50 text-amber-500 border-amber-100"; // 預設橘黃 (未對齊)
-                    if (msgDate && refDate) {
-                      if (parseInt(msgDate) < parseInt(refDate)) {
-                        // 資料日期早於基準日 = 過時 (紅色)
-                        colorClass = "bg-red-50 text-red-500 border-red-100 animate-pulse";
-                      }
-                    }
-                    return (
-                      <span
-                        key={idx}
-                        className={`px-1.5 py-0.5 text-[9px] font-black rounded border ${colorClass}`}
-                      >
-                        {msg}
-                      </span>
-                    );
-                  })}
+      {/* 主內容區域 */}
+      <main className={`flex-1 transition-all duration-300 ${isSidebarHovered ? 'pl-60' : 'pl-[72px]'}`}>
+        <div className="w-full max-w-[1440px] mx-auto p-4 md:p-8">
+
+          {/* 頂部整合標頭與方案 A 摺頁子 Tab */}
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center border-b border-slate-200 pb-5 mb-8 gap-4">
+            <div className="flex flex-wrap items-center gap-6">
+              <h1 className="text-3xl font-black text-blue-900 tracking-tighter flex items-center gap-2">
+                {SIDEBAR_GROUPS.find(g => g.id === mainTab)?.label || "CapitalPulse"}
+              </h1>
+
+              {/* 完美收合的精簡子 Tab 控制器 */}
+              {getSubTabs().length > 0 && (
+                <div className="flex gap-1.5 bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/60 shadow-inner h-12 items-center">
+                  {getSubTabs().map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setSubTab(t.id)}
+                      // 💡 調整了 px-6 (左右內距放大)、py-2 (上下微調)、text-sm (字體放大)、rounded-xl (圓角加深)
+                      className={`px-6 py-2 rounded-xl text-sm font-black transition-all duration-200 tracking-tight whitespace-nowrap select-none h-9 flex items-center justify-center ${subTab === t.id
+                        ? 'bg-white text-blue-600 shadow-md transform scale-102 font-black'
+                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50 font-bold'
+                        }`}
+                    >
+                      {t.l}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 text-[9px] font-black rounded border border-blue-100">
-                  FULL SYNCED
-                </span>
               )}
             </div>
-          </div>
-          <div className="flex items-center gap-2 mt-3">
-            <button onClick={() => setExcludeETF(!excludeETF)} className={`px-5 py-1.5 text-xs font-black rounded-full border transition shadow-sm ${excludeETF ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-200 hover:border-orange-300'}`}>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center bg-white border border-slate-200 px-3 py-1 rounded-xl shadow-sm text-xs font-bold text-slate-500">
+                <span className="text-[10px] text-slate-400 mr-1.5 uppercase">DATA REF</span>
+                <span className="font-mono">{data?.date ? `${data.date.slice(0, 4)}/${data.date.slice(4, 6)}/${data.date.slice(6, 8)}` : "----/--/--"}</span>
+              </div>
+              <button onClick={() => setExcludeETF(!excludeETF)} className={`px-5 py-1.5 text-xs font-black rounded-full border transition shadow-sm ${excludeETF ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-200 hover:border-orange-300'}`}>
               {excludeETF ? '✕ 只顯示個股' : '□ 包含所有數據'}
-            </button>
-          </div>
-        </div>
-        <div className="flex bg-white border border-slate-200 rounded-2xl p-1 shadow-sm h-14 items-center overflow-x-auto">
-          {[{ id: 'radar', l: '台股雷達' }, { id: 'hot', l: '熱門資金' }, { id: 'sectors', l: '族群資金' }, { id: 'total', l: '法人總計' }, { id: 'foreign', l: '外資' }, { id: 'trust', l: '投信' }, { id: 'dealer', l: '自營' }].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`px-6 h-10 rounded-xl text-sm font-black transition whitespace-nowrap ${tab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>{t.l}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* 🌟 決策級看板：3:3:3:3 全真實數據對齊版 🌟 */}
-      <div className="grid grid-cols-12 gap-5 mb-8">
-
-        {/* [卡片 1] 價格維度：指數與市場寬度 */}
-        <div className="col-span-12 lg:col-span-3 bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-[250px]">
-          <div>
-            <div className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1 opacity-70">Market Price</div>
-            <div className={`text-3xl font-black mb-1 ${data.taiex?.diff >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-              {data.taiex?.price?.toLocaleString() || "--,---"}
-            </div>
-            <div className={`flex items-center gap-1.5 text-xs font-black ${data.taiex?.diff >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-              {data.taiex ? (
-                <>
-                  <span>{data.taiex.diff >= 0 ? '▲' : '▼'} {Math.abs(data.taiex.diff)}</span>
-                  <span className="opacity-60">({data.taiex.pct}%)</span>
-                </>
-              ) : <span>-- ( --% )</span>}
-            </div>
-            <div className="flex flex-wrap gap-2 mt-3 items-center">
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${data.taiex?.is_above_ma20 ? 'bg-red-50 text-red-500 border-red-100' : 'bg-green-50 text-green-600 border-green-100'}`}>MA20</span>
-              <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${data.taiex?.is_above_ma60 ? 'bg-red-50 text-red-500 border-red-100' : 'bg-green-50 text-green-600 border-green-100'}`}>MA60</span>
-              <span className="ml-auto text-[10px] font-black text-blue-500 bg-blue-50/50 px-2 py-0.5 rounded border border-blue-100/50">
-                量比 {data.taiex?.vol_ratio ? data.taiex.vol_ratio.toFixed(2) : "--.--"}x
-              </span>
+              </button>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase">
-              <span className="text-red-500">{data?.breadth?.up || "---"}</span>
-              <span className="text-green-600">{data?.breadth?.down || "---"}</span>
-            </div>
-            <div className="h-2 w-full bg-slate-50 rounded-full flex overflow-hidden border border-slate-100">
-              <div className="bg-red-400 transition-all duration-1000" style={{ width: `${(data?.breadth?.up / (data?.breadth?.up + data?.breadth?.down || 1)) * 100 || 50}%` }}></div>
-              <div className="bg-green-400 transition-all duration-1000" style={{ width: `${(data?.breadth?.down / (data?.breadth?.up + data?.breadth?.down || 1)) * 100 || 50}%` }}></div>
-            </div>
-          </div>
-        </div>
+          {/* 頁面分流 */}
+          <div className="transition-all duration-300">
+            {mainTab === 'market' && <MarketMonitorPage />}
 
-        {/* [卡片 2] 心理維度：解決溢出問題 (精算高度版) */}
-        <div className="col-span-12 lg:col-span-3 bg-white p-4 rounded-[24px] shadow-sm border border-slate-100 flex flex-col h-[250px] overflow-hidden">
-          <div className="text-center">
-            <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest opacity-60">Market Sentiment</span>
-          </div>
+            {mainTab === 'sectors' && (
+              <SectorGroupPage
+                subTab={subTab}
+                data={data}
+                valuechainData={valuechainData}
+                fetchMainData={fetchMainData}
+                fetchValuechainData={fetchValuechainData}
+                ValuechainView={ValuechainView}
+              />
+            )}
 
-          {/* 1. 膠囊指針：稍微上移 */}
-          <div className="mt-0">
-            <SentimentGauge score={data?.sentiment?.now?.score} />
-          </div>
-
-          {/* 2. 歷史對照：極限壓縮垂直間距 */}
-          <div className="mt-1 flex flex-col px-1">
-            {[
-              { label: "昨日", d: data?.sentiment?.last },
-              { label: "一週", d: data?.sentiment?.week },
-              { label: "一月", d: data?.sentiment?.month }
-            ].map((h, i) => (
-              <div key={i} className="flex justify-between items-center py-0.5">
-                <span className="text-[10px] text-slate-400 font-bold">{h.label}</span>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[8px] font-black uppercase ${h.d?.score > 55 ? 'text-emerald-500' : h.d?.score < 45 ? 'text-red-400' : 'text-slate-400'
-                    }`}>
-                    {h.d?.label || "---"}
-                  </span>
-                  <span className="font-mono font-black text-slate-600 text-[10px] w-6 text-right">
-                    {h.d?.score ?? "---"}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-
-          {/* 🌟 修正點：縮小底部 VIX 區塊高度 */}
-          <div className="mt-auto pt-2 border-t border-slate-100 flex justify-between items-center">
-            <div className="flex flex-col">
-              <span className="text-slate-400 text-[8px] font-black uppercase leading-none mb-1">VIX INDEX</span>
-              <span className="text-xl font-black font-mono text-slate-700 leading-none">
-                {data?.sentiment?.vix ? data.sentiment.vix.toFixed(2) : "--.--"}
-              </span>
-            </div>
-
-            {data?.sentiment?.vix ? (
-              <div className={`px-2 py-0.5 text-[10px] font-black rounded border ${getVixStatus(data.sentiment.vix).color}`}>
-                {getVixStatus(data.sentiment.vix).label}
-              </div>
-            ) : (
-              <div className="px-2 py-0.5 bg-slate-50 text-slate-300 text-[8px] font-black rounded border border-slate-100">N/A</div>
+            {mainTab === 'funds' && (
+              <InstitutionalFundPage
+                subTab={subTab}
+                data={data}
+                radarData={radarData}
+                excludeETF={excludeETF}
+                fetchRadarData={fetchRadarData}
+                formatBillion={formatBillion}
+                formatK={formatK}
+                SentimentGauge={SentimentGauge}
+                MarginRatioGauge={MarginRatioGauge}
+                getVixStatus={getVixStatus}
+                RadarView={RadarView}
+                SectorView={SectorView}
+                RankingView={RankingView}
+              />
             )}
           </div>
-
-
-          {/* 背離警示 (如果有) */}
-          {data?.sentiment?.divergence && (
-            <div className="text-center mt-2 animate-pulse">
-              <span className="text-[9px] font-black text-orange-500 uppercase tracking-tighter">Signal Divergence</span>
-            </div>
-          )}
         </div>
-
-        {/* [卡片 3] 主力維度：真實火力分佈 */}
-        <div className="col-span-12 lg:col-span-3 bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 flex flex-col justify-between h-[250px]">
-          <div>
-            <div className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1 opacity-70">Main Force (Net)</div>
-            <div className={`text-3xl font-black ${data?.summary?.total >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-              {data?.summary ? formatBillion(data.summary.total) : "--.--"}<span className="text-[20px] ml-0.5 opacity-40">億</span>
-            </div>
-
-            <div className="space-y-3.5 mt-4">
-              {['foreign', 'trust', 'dealer'].map(k => {
-                const val = data?.summary?.[k] || 0;
-                const maxVal = Math.max(
-                  Math.abs(data?.summary?.foreign || 0),
-                  Math.abs(data?.summary?.trust || 0),
-                  Math.abs(data?.summary?.dealer || 0),
-                  100
-                );
-                const barWidth = (Math.abs(val) / maxVal) * 50;
-                const isPositive = val >= 0;
-                return (
-                  <div key={k} className="space-y-1">
-                    <div className="flex justify-between text-[9px] font-black uppercase">
-                      <span className="text-slate-400">{k === 'foreign' ? '外資' : k === 'trust' ? '投信' : '自營'}</span>
-                      <span className={isPositive ? 'text-red-500' : 'text-green-600'}>
-                        {formatBillion(val)}
-                      </span>
-                    </div>
-                    <div className="relative h-1.5 w-full bg-slate-50 rounded-full overflow-hidden border border-slate-100/50">
-                      <div className="absolute left-1/2 top-0 w-px h-full bg-slate-200 z-10" />
-                      <div
-                        className={`absolute top-0 h-full transition-all duration-1000 ease-out ${isPositive ? 'bg-red-400' : 'bg-green-400'}`}
-                        style={{
-                          width: `${barWidth}%`,
-                          left: isPositive ? '50%' : 'auto',
-                          right: !isPositive ? '50%' : 'auto'
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="py-2 rounded-xl text-center border border-slate-100 bg-slate-50/80 shadow-sm transition-all mt-2">
-            <span className="text-[10px] font-black tracking-wider text-slate-600 uppercase">
-              {data?.signals?.inst || "Wait Sync"}
-            </span>
-          </div>
-        </div>
-
-        {/* [卡片 4] 槓桿維度：真實券資比指針 */}
-        <div className="col-span-12 lg:col-span-3 bg-white p-5 rounded-[24px] shadow-sm border border-slate-100 flex flex-col h-[250px] overflow-hidden">
-          {/* 1. 頂部標題 */}
-          <div className="text-slate-400 text-[9px] font-black uppercase tracking-widest opacity-70 mb-2">
-            Leverage Analysis
-          </div>
-
-          {/* 2. 🌟 中間區：左邊數據、右邊指針 */}
-          <div className="flex justify-between items-center flex-1">
-            {/* 左側數據堆疊 */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-7 bg-orange-400/80 rounded-full" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400 font-black uppercase leading-none mb-0.5">融資增減</span>
-                  <div className={`text-xl font-black font-mono leading-none ${data?.margin?.financing >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {(data?.margin && data.margin.financing !== undefined) ? formatBillion(data.margin.financing) : "--.--"}
-                    <span className="text-[11px] ml-0.5 opacity-40">億</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-7 bg-indigo-400/80 rounded-full" />
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400 font-black uppercase leading-none mb-0.5">融券增減</span>
-                  <div className={`text-xl font-black font-mono leading-none ${data?.margin?.short_selling >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {(data?.margin && data.margin.short_selling !== undefined) ? formatK(data.margin.short_selling) : "--"}
-                    <span className="text-[11px] ml-0.5 opacity-40">張</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 右側指針 (填充空白處) */}
-            <div className="pr-1">
-              <MarginRatioGauge ratio={data?.margin?.ratio} />
-            </div>
-          </div>
-
-          {/* 3. 🌟 底部：極度壓縮的上市櫃數據條 (不擠壓結論) */}
-          <div className="mt-3 flex justify-around items-center py-1 bg-slate-50/50 rounded-lg border border-slate-100/50">
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] text-slate-400 font-bold uppercase scale-90">上市</span>
-              <span className="text-[10px] font-black font-mono text-slate-600">{data?.margin?.tse_ratio || "---"}%</span>
-            </div>
-            <div className="w-px h-3 bg-slate-200" />
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] text-slate-400 font-bold uppercase scale-90">上櫃</span>
-              <span className="text-[10px] font-black font-mono text-slate-600">{data?.margin?.otc_ratio || "---"}%</span>
-            </div>
-          </div>
-
-          {/* 4. 結論標籤 (完全貼底) */}
-          <div className={`mt-3 py-1.5 rounded-xl text-center border shadow-sm transition-all text-[10px] font-black tracking-wider uppercase
-            ${data?.signals?.margin?.includes('💎') ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
-            {data?.signals?.margin || "Wait Sync"}
-          </div>
-        </div>
-
-      </div>
-
-      {/* 分頁內容 */}
-      <div className="transition-all duration-300">
-        {tab === 'hot' && (
-          <HotMapView
-            data={hotMapData}
-            onUpdateComplete={() => {
-              fetchMainData();
-              fetchHotMapData();
-            }}
-          />
-        )}
-        {tab === 'radar' && <RadarView data={radarData} onScanComplete={(val) => { if (val === null) setRadarData(null); else fetchRadarData(); }} />}
-        {tab === 'sectors' && <SectorView data={data?.sectors} />}
-        {(tab !== 'radar' && tab !== 'sectors' && tab !== 'hot') && (
-          <RankingView list={currentList} type={tab} excludeETF={excludeETF} data={data} />
-        )}
-      </div>
+      </main>
     </div>
   );
 }
 
 // ==========================================
-// 排行榜：上下佈局 & 顏色過濾
+// 核心組件還原區（原本寫在 App 下方的元件們）
 // ==========================================
 function RankingView({ list, type, excludeETF, data }) {
   const [expandedId, setExpandedId] = useState(null);
-
   const Table = ({ items, isBuy, title }) => {
     const displayItems = (items || []).filter(i => excludeETF ? !i.is_etf : true);
-
     return (
       <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 mb-8 overflow-hidden">
         <h3 className={`font-black mb-6 text-sm uppercase tracking-widest ${isBuy ? 'text-red-500' : 'text-green-600'} flex items-center`}>
-          <span className={`w-2 h-2 rounded-full mr-2 ${isBuy ? 'bg-red-500' : 'bg-green-600'}`}></span>
-          {title}
+          <span className={`w-2 h-2 rounded-full mr-2 ${isBuy ? 'bg-red-500' : 'bg-green-600'}`}></span>{title}
         </h3>
         <table className="w-full text-sm text-left">
           <thead className="text-[10px] text-slate-300 font-black uppercase border-b">
@@ -504,28 +308,19 @@ function RankingView({ list, type, excludeETF, data }) {
               const isExpanded = expandedId === s.stock_id;
               const mainTagType = Object.keys(TAG_THEMES).find(key => s.all_tags?.[key]?.trim() === s.category?.trim()) || 'basic';
               const mainStyle = TAG_THEMES[mainTagType];
-
-              // 獲取其他標籤
               const otherTags = Object.entries(s.all_tags || {}).filter(([tKey, tName]) => tName && tName.trim() !== s.category?.trim() && TAG_THEMES[tKey]);
-
               return (
                 <React.Fragment key={s.stock_id}>
                   <tr onClick={() => setExpandedId(isExpanded ? null : s.stock_id)} className={`border-b border-slate-50 last:border-0 hover:bg-slate-50 transition cursor-pointer ${isExpanded ? 'bg-slate-50' : ''}`}>
-                    <td className="py-4 px-2 font-black text-slate-800 text-base">
-                      {s?.stock_name} <span className="text-[10px] text-slate-400 font-mono ml-1 opacity-60 font-bold uppercase">{s?.stock_id}</span>
-                    </td>
+                    <td className="py-4 px-2 font-black text-slate-800 text-base">{s?.stock_name} <span className="text-[10px] text-slate-400 font-mono ml-1 opacity-60 font-bold uppercase">{s?.stock_id}</span></td>
                     <td className={`text-right font-black text-lg px-4 font-mono ${isBuy ? 'text-red-500' : 'text-green-600'}`}>{formatK(s?.[type] || 0)}</td>
-                    <td className="text-right px-2">
-                      <span style={{ backgroundColor: mainStyle.bg, color: mainStyle.text, borderColor: mainStyle.border }} className="text-[10px] px-2 py-1 rounded-lg font-black border font-mono tracking-tighter shadow-sm">{s?.category || "一般個股"}</span>
-                    </td>
+                    <td className="text-right px-2"><span style={{ backgroundColor: mainStyle.bg, color: mainStyle.text, borderColor: mainStyle.border }} className="text-[10px] px-2 py-1 rounded-lg font-black border font-mono tracking-tighter shadow-sm">{s?.category || "一般個股"}</span></td>
                   </tr>
                   {isExpanded && (
                     <tr className="animate-fadeIn">
                       <td colSpan="3" className="bg-slate-50/50 px-6 py-6 border-b border-slate-100 shadow-inner">
                         <div className="flex flex-col gap-6">
-                          {/* 上層：籌碼雙卡 (大戶 vs 散戶) */}
                           <div className="flex flex-wrap gap-4">
-                            {/* 法人卡 */}
                             <div className="flex gap-6 bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm">
                               {[{ k: 'foreign', l: '外資' }, { k: 'trust', l: '投信' }, { k: 'dealer', l: '自營' }].map(inst => (
                                 <div key={inst.k} className="text-center min-w-[60px]">
@@ -534,8 +329,6 @@ function RankingView({ list, type, excludeETF, data }) {
                                 </div>
                               ))}
                             </div>
-
-                            {/* 🌟 信用卡 (融資券) */}
                             <div className="flex gap-6 bg-slate-100/50 px-5 py-3 rounded-2xl border border-slate-200 shadow-sm">
                               <div className="text-center min-w-[60px]">
                                 <p className="text-[10px] text-slate-500 font-black mb-1">融資增減</p>
@@ -547,40 +340,30 @@ function RankingView({ list, type, excludeETF, data }) {
                               </div>
                             </div>
                           </div>
-
                           {otherTags.length > 0 && (
                             <div className="flex flex-col gap-2 pl-2 border-l-2 border-slate-200">
                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">更多產業屬性</span>
                               <div className="flex flex-wrap gap-2">
                                 {otherTags.map(([tKey, tName]) => {
                                   const stl = TAG_THEMES[tKey];
-
-                                  // 🌟 修正點：使用安全鏈 ?. 並確保 data 存在
-                                  const isHot = data?.sectors?.buy?.some(sector => sector.name === tName);
-
-                                  return (
-                                    <span
-                                      key={tKey}
-                                      style={{ backgroundColor: stl.bg, color: stl.text, borderColor: stl.border }}
-                                      className={`px-2 py-1 rounded-md text-[10px] font-black shadow-sm flex items-center gap-1 `}
-                                    >
-                                      {isHot && <span>🔥</span>}
-                                      {tName}
-                                    </span>
-                                  );
+                                  const isvaluechain = data?.sectors?.buy?.some(sector => sector.name === tName);
+                                  return <span key={tKey} style={{ backgroundColor: stl.bg, color: stl.text, borderColor: stl.border }} className="px-2 py-1 rounded-md text-[10px] font-black shadow-sm flex items-center gap-1">{isvaluechain && <span>🔥</span>}{tName}</span>;
                                 })}
                               </div>
-                            </div>)}
+                            </div>
+                          )}
                         </div>
                       </td>
-                    </tr>)}
-                </React.Fragment>);
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
             })}
           </tbody>
         </table>
-      </div>);
+      </div>
+    );
   };
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fadeIn">
       <div className="flex flex-col gap-4">
@@ -591,233 +374,115 @@ function RankingView({ list, type, excludeETF, data }) {
         <Table items={list.tse_s} isBuy={false} title="上市賣超 (張)" />
         <Table items={list.otc_s} isBuy={false} title="上櫃賣超 (張)" />
       </div>
-    </div>);
+    </div>
+  );
 }
-// ==========================================
-// 雷達頁面：強化監控標籤與籌碼動向
-// ==========================================
+
 function RadarView({ data, onScanComplete }) {
   const [activeKey, setActiveKey] = useState('steady');
   const [progress, setProgress] = useState(0);
   const [serverIsRunning, setServerIsRunning] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // 1. 核心輪詢邏輯：具備「強制拆除」功能
   useEffect(() => {
-    // 🌟 第一道防線：如果資料已經回來了，且伺服器沒在跑，也沒按更新，直接不啟動輪詢
-    if (data && !serverIsRunning && !isUpdating) {
-      return;
-    }
-
+    if (data && !serverIsRunning && !isUpdating) return;
     const timer = setInterval(() => {
       fetch(`http://localhost:5000/api/radar_progress?t=${Date.now()}`)
         .then(res => res.json())
         .then(d => {
-          // 更新本地狀態
           setProgress(d.progress);
           setServerIsRunning(d.is_running);
-
-          // 🌟 第二道防線：精準判斷「掃描完成」的那一刻
-          // 條件：進度 100% 且 伺服器回報已經停了 (is_running: false)
           if (d.progress === 100 && d.is_running === false) {
-            console.log("📡 偵測到掃描已徹底結束，執行停火...");
-
-            // 如果目前畫面上還是舊資料或沒資料，才去抓新的
-            if (!data || isUpdating) {
-              onScanComplete();
-            }
-
+            if (!data || isUpdating) onScanComplete();
             setIsUpdating(false);
-            clearInterval(timer); // 🌟 核心：從內部物理拆除計時器
+            clearInterval(timer);
           }
         })
-        .catch(err => {
-          console.error("輪詢連線失敗，自動停止");
-          clearInterval(timer);
-        });
-    }, 2500); // 頻率微調為 2.5 秒，減輕負擔
+        .catch(() => clearInterval(timer));
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [data, isUpdating, serverIsRunning, onScanComplete]);
 
-    return () => {
-      console.log("🧹 清理計時器中...");
-      clearInterval(timer);
-    };
-  }, [data, isUpdating]); // 🌟 只監控這兩個關鍵訊號
-
-  // 2. 手動刷新按鈕
   const handleRefresh = async () => {
     if (serverIsRunning || isUpdating) return;
     setIsUpdating(true);
     setProgress(0);
     try {
       await fetch('http://localhost:5000/api/radar/refresh', { method: 'POST' });
-      // 指令送出後，useEffect 會因為 isUpdating 變 true 而重新啟動輪詢
-    } catch (err) {
-      alert("啟動失敗");
+    } catch {
       setIsUpdating(false);
     }
   };
 
-
-  // 🌟 修正後的掃描狀態判斷：只要後端在跑，或是我們手動點了更新，都算掃描中
   const isScanning = serverIsRunning || (isUpdating && progress < 100);
 
   return (
     <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 animate-fadeIn relative overflow-hidden">
-
-      {/* 頂部線性進度條 */}
       {isScanning && (
         <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 z-10">
-          <div
-            className="h-full bg-blue-600 transition-all duration-1000 ease-in-out shadow-[0_0_8px_rgba(37,99,235,0.5)]"
-            style={{ width: `${Math.max(progress, 2)}%` }}
-          ></div>
+          <div className="h-full bg-blue-600 transition-all duration-1000 ease-in-out shadow-[0_0_8px_rgba(37,99,235,0.5)]" style={{ width: `${Math.max(progress, 2)}%` }}></div>
         </div>
       )}
-
-      {/* 數據狀態條 */}
       <div className="mb-6 px-5 py-3 bg-slate-50/50 rounded-2xl border border-slate-100/50 flex justify-between items-center">
         <div className="flex items-center text-slate-400 font-bold text-[11px] tracking-tight">
           <span className="mr-1.5">今日篩選率:</span>
-          {/* 🌟 修正 1：掃描中不再顯示進度趴數，改顯示預設文字 */}
-          <span className="text-blue-600 font-black text-sm font-mono">
-            {isScanning ? "計算中..." : (data?.stats?.hit_rate || "---")}
-          </span>
-
+          <span className="text-blue-600 font-black text-sm font-mono">{isScanning ? "計算中..." : (data?.stats?.hit_rate || "---")}</span>
           <span className="mx-4 opacity-20 text-slate-300">|</span>
-
           <span className="mr-1.5">命中數:</span>
-          <span className="text-slate-700 font-black font-mono">
-            {isScanning ? "--" : (data?.stats?.hit_count || 0)}
-          </span>
+          <span className="text-slate-700 font-black font-mono">{isScanning ? "--" : (data?.stats?.hit_count || 0)}</span>
           <span className="text-slate-400 mx-1">/</span>
-          <span className="text-slate-400 font-mono">
-            {isScanning ? "1975" : (data?.stats?.total_count || "---")}
-          </span>
+          <span className="text-slate-400 font-mono">{isScanning ? "1975" : (data?.stats?.total_count || "---")}</span>
         </div>
-
-        <div className="flex items-center gap-4 ">
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm transition-all ${isScanning ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200/50'} `}>
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm transition-all ${isScanning ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200/50'}`}>
             <span className="relative flex h-2 w-2">
               <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isScanning ? 'animate-ping bg-blue-400' : 'bg-emerald-400'}`}></span>
               <span className={`relative inline-flex rounded-full h-2 w-2 ${isScanning ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
             </span>
-            {/* 🌟 修正 2：將掃描進度趴數移到狀態燈這裡，更符合直覺 */}
-            <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'} `}>
-              {isScanning ? `實時價格掃描中 ${progress}%` : '訊號實時監控中'}
-            </span>
+            <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'}`}>{isScanning ? `實時價格掃描中 ${progress}%` : '訊號實時監控中'}</span>
           </div>
-
-          <div className="font-mono text-[10px] text-slate-400 font-bold opacity-60">
-            {isScanning ? "SYNCING..." : (data?.stats?.scan_time || "---")}
-          </div>
+          <div className="font-mono text-[10px] text-slate-400 font-bold opacity-60">{isScanning ? "SYNCING..." : (data?.stats?.scan_time || "---")}</div>
         </div>
       </div>
-
       <div className="flex items-center gap-4 mb-8 overflow-x-auto pb-2">
         {[{ id: 'first_break', l: '首日突破' }, { id: 'steady', l: '縮量站穩' }, { id: 'momentum', l: '動能噴發' }].map(g => (
-          <button
-            key={g.id}
-            onClick={() => setActiveKey(g.id)}
-            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeKey === g.id ? 'bg-slate-800 text-white shadow-lg scale-105' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-          >
+          <button key={g.id} onClick={() => setActiveKey(g.id)} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeKey === g.id ? 'bg-slate-800 text-white shadow-lg scale-105' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>
             {g.l} ({isScanning ? "-" : (data?.groups?.[g.id]?.length || 0)})
           </button>
         ))}
-
-        <button
-          onClick={handleRefresh}
-          disabled={isScanning}
-          className="ml-auto flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 transition-all bg-blue-50/50 hover:bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm disabled:opacity-30"
-        >
-          <svg className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+        <button onClick={handleRefresh} disabled={isScanning} className="ml-auto flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 transition-all bg-blue-50/50 hover:bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm disabled:opacity-30">
+          <svg className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           {isScanning ? '正在更新' : '刷新實時價格'}
         </button>
       </div>
-
-      {/* 資料清單：如果是第一次載入(完全沒資料)，才顯示大的 Loading；如果是手動刷新，則讓舊資料變淡顯示 */}
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${isScanning && data ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
-        {!data && isScanning ? (
-          <div className="col-span-full py-40 text-center text-slate-300 font-black animate-pulse">
-            正在進行數據掃描...
-          </div>
-        ) : (
+        {!data && isScanning ? <div className="col-span-full py-40 text-center text-slate-300 font-black animate-pulse">正在進行數據掃描...</div> :
           data?.groups?.[activeKey]?.map((item, i) => (
-            <div
-              key={i}
-              className={`bg-slate-50 rounded-[30px] p-6 transition-all hover:shadow-lg border 
-                ${item.is_limit_up
-                  ? 'border-[3px] border-red-400 shadow-[0_0_15px_-3px_rgba(248,113,113,0.2)]'
-                  : 'border-slate-100'
-                }`}
-            >
+            <div key={i} className={`bg-slate-50 rounded-[30px] p-6 transition-all hover:shadow-lg border ${item.is_limit_up ? 'border-[3px] border-red-400 shadow-[0_0_15px_-3px_rgba(248,113,113,0.2)]' : 'border-slate-100'}`}>
               <div className="flex justify-between items-start mb-4">
-                {/* 左側：名稱、代號、天數 */}
                 <div className="flex items-baseline gap-2">
                   <h4 className="text-2xl font-black text-slate-800 tracking-tighter">{item.name}</h4>
                   <span className="text-slate-400 text-sm font-mono opacity-60 uppercase font-bold">{item.stock_id}</span>
-
-                  {item.state_key !== 'first_break' && item.break_count > 1 && (
-                    <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded border border-indigo-100 leading-none">
-                      D{item.break_count}
-                    </span>
-                  )}
+                  {item.state_key !== 'first_break' && item.break_count > 1 && <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded border border-indigo-100 leading-none">D{item.break_count}</span>}
                 </div>
-
-                {/* 右側：狀態區 (處置標記移到現價左邊) */}
                 <div className="flex items-center">
-                  {/* 🌟 處置標籤：黃底黑字，移到現價左邊 */}
-                  {item.is_disposition && (
-                    <span className="mr-2 inline-flex items-center justify-center bg-yellow-400 text-black px-2 h-5 rounded-md text-[10px] font-black leading-none shadow-sm ring-1 ring-yellow-500/30">
-                      處置
-                    </span>
-                  )}
-
-                  {/* 現價標籤 */}
-                  <span className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-black tracking-tight font-mono shadow-sm">
-                    price:{item.price}
-                  </span>
+                  {item.is_disposition && <span className="mr-2 inline-flex items-center justify-center bg-yellow-400 text-black px-2 h-5 rounded-md text-[10px] font-black leading-none shadow-sm ring-1 ring-yellow-500/30">處置</span>}
+                  <span className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-black tracking-tight font-mono shadow-sm">price:{item.price}</span>
                 </div>
               </div>
-              {/* 🌟 標籤與紫圈顯示區 */}
               <div className="flex items-center gap-2 mb-4">
-                {/* 1. 核心模型/共振標籤 (彩色背景按鈕) */}
-                {item.chip_tag && (
-                  <span className={`px-2 py-1 rounded-md text-[10px] font-black border shadow-sm transition-all
-                ${item.chip_tag.includes('🔥') ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                      item.chip_tag.includes('🔴') ? 'bg-red-50 text-red-600 border-red-100' :
-                        item.chip_tag.includes('🌊') ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                          item.chip_tag.includes('💎') ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                            item.chip_tag.includes('⚓') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
-                              'bg-white text-slate-500 border-slate-200'}`}>
-                    {item.chip_tag}
-                  </span>
-                )}
-
-                {/* 2. 🌟 紫圈標籤文字：資金主戰場 | 投信重倉 (純文字顯示在按鈕旁) */}
-                {item.money_label && (
-                  <span className="text-[12px] font-black text-purple-600 ml-1">
-                    {item.money_label}
-                  </span>
-                )}
-
+                {item.chip_tag && <span className={`px-2 py-1 rounded-md text-[10px] font-black border shadow-sm transition-all ${item.chip_tag.includes('🔥') ? 'bg-orange-50 text-orange-600 border-orange-100' : item.chip_tag.includes('🔴') ? 'bg-red-50 text-red-600 border-red-100' : item.chip_tag.includes('🌊') ? 'bg-blue-50 text-blue-600 border-blue-100' : item.chip_tag.includes('💎') ? 'bg-purple-50 text-purple-600 border-purple-100' : item.chip_tag.includes('⚓') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-500 border-slate-200'}`}>{item.chip_tag}</span>}
+                {item.money_label && <span className="text-[12px] font-black text-purple-600 ml-1">{item.money_label}</span>}
               </div>
-              {/* 實戰診斷與計畫文字 */}
-              <pre className="text-[12px] font-sans text-slate-600 bg-white p-5 rounded-2xl border border-slate-50 whitespace-pre-wrap leading-relaxed shadow-sm font-bold">
-                {item.full_text}
-              </pre>
+              <pre className="text-[12px] font-sans text-slate-600 bg-white p-5 rounded-2xl border border-slate-50 whitespace-pre-wrap leading-relaxed shadow-sm font-bold">{item.full_text}</pre>
             </div>
           ))
-        )}
+        }
       </div>
     </div>
   );
 }
 
-// ==========================================
-// 族群頁面：同步顏色與自營商顯示
-// ==========================================
 function SectorView({ data }) {
   const [expandedSector, setExpandedSector] = useState(null);
   const Row = ({ item, isBuy, rank }) => {
@@ -830,9 +495,7 @@ function SectorView({ data }) {
               <span className="text-slate-200 font-black italic text-2xl w-8">{rank}.</span>
               <div>
                 <div className="font-black text-xl mb-0.5" style={{ color: theme.text }}>{item?.name}</div>
-                <div className="text-[11px] text-slate-400 font-bold tracking-tight opacity-70">
-                  外 {formatK(item.foreign)} / 信 {formatK(item.trust)} / 自 {formatK(item.dealer)} (張)
-                </div>
+                <div className="text-[11px] text-slate-400 font-bold tracking-tight opacity-70">外 {formatK(item.foreign)} / 信 {formatK(item.trust)} / 自 {formatK(item.dealer)} (張)</div>
               </div>
             </div>
             <div className={`font-black text-xl ${isBuy ? 'text-red-500' : 'text-green-600'}`}>{formatK(item.total)}</div>
@@ -843,58 +506,59 @@ function SectorView({ data }) {
                 <div key={idx} className="flex justify-between text-xs py-2 border-l-2 border-slate-100 pl-4">
                   <span className="font-bold text-slate-600">{c.stock_name}</span>
                   <span className={`font-black ${c.total >= 0 ? 'text-red-500' : 'text-green-600'}`}>{formatK(c.total)}</span>
-                </div>))}
-            </div>)}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </React.Fragment>);
+      </React.Fragment>
+    );
   };
-
   return (
     <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border grid grid-cols-1 lg:grid-cols-2 gap-20 animate-fadeIn">
       <div>
-        <h3 className="text-red-500 font-black mb-8 text-xs border-b-2 border-red-50 pb-3 uppercase tracking-widest flex items-center">
-          <span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span>法人買超族群 (張)
-        </h3>
+        <h3 className="text-red-500 font-black mb-8 text-xs border-b-2 border-red-50 pb-3 uppercase tracking-widest flex items-center"><span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span>法人買超族群 (張)</h3>
         {data?.buy?.length > 0 ? data.buy.map((item, i) => <Row key={i} item={item} isBuy={true} rank={i + 1} />) : <p className="py-20 text-center text-slate-300 font-bold italic uppercase tracking-widest">No sector data</p>}
       </div>
       <div>
-        <h3 className="text-green-600 font-black mb-8 text-xs border-b-2 border-green-50 pb-3 uppercase tracking-widest flex items-center">
-          <span className="w-2 h-2 rounded-full bg-green-600 mr-2"></span>法人賣超族群 (張)
-        </h3>
+        <h3 className="text-green-600 font-black mb-8 text-xs border-b-2 border-green-50 pb-3 uppercase tracking-widest flex items-center"><span className="w-2 h-2 rounded-full bg-green-600 mr-2"></span>法人賣超族群 (張)</h3>
         {data?.sell?.length > 0 ? data.sell.map((item, i) => <Row key={i} item={item} isBuy={false} rank={i + 1} />) : <p className="py-20 text-center text-slate-300 font-bold italic uppercase tracking-widest">No sector data</p>}
       </div>
     </div>
   );
 }
 
-// ==========================================
-// 熱門產業金流分頁組件
-// ==========================================
-function HotMapView({ data, onUpdateComplete }) {
+function ValuechainView({ data, onUpdateComplete }) {
   // 1. 統一狀態管理
-  const [hotProgress, setHotProgress] = useState(0);
+  const [valuechainProgress, setValuechainProgress] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [msg, setMsg] = useState("");
+  const [selectedIndustry, setSelectedIndustry] = useState(null);
+  const [isDrawerClosing, setIsDrawerClosing] = useState(false);
+  const sourceData = data?.valuechain_map ? data.valuechain_map : data;
 
-  const { resonance = [], top5 = [], others = [] } = data || {};
+  const { resonance = [], top5 = [], others = [] } = sourceData || {};
+  // 🌟 核心修正：聰明的自動輪詢機制
+  const isDataLoading = !data || data.status === "loading";
 
-  // 2. 自動輪詢邏輯：監控後端進度
+  // 💡 修正 2：只有在明確是 "loading" 狀態且還沒同步完時才輪詢
+  const shouldPoll = isSyncing || isDataLoading;
+
   useEffect(() => {
     let timer;
-    if (isSyncing) {
+    if (shouldPoll) {
       timer = setInterval(async () => {
         try {
-          const res = await fetch("http://localhost:5000/api/hot_progress");
+          const res = await fetch("http://localhost:5000/api/valuechain_progress");
           const d = await res.json();
-          setHotProgress(d.progress);
+          setValuechainProgress(d.progress);
 
-          // 當後端回報停止執行且進度達到 100
-          if (!d.is_running && d.progress === 100) {
+          // 判斷是否需要刷新前端畫面：
+          if (!d.is_running) {
             setIsSyncing(false);
-            setMsg("更新完成！正在刷新數據...");
-            clearInterval(timer);
+            setMsg("數據已就緒！正在自動刷新...");
+            clearInterval(timer); // 物理拆除計時器
 
-            // 💡 關鍵：呼叫父組件傳進來的刷新函數 (fetchMainData)
             if (onUpdateComplete) {
               setTimeout(() => {
                 onUpdateComplete();
@@ -903,194 +567,221 @@ function HotMapView({ data, onUpdateComplete }) {
             }
           }
         } catch (err) {
-          console.error("輪詢失敗", err);
+          console.error("熱門產業初始化輪詢失敗", err);
         }
-      }, 2000); // 每 2 秒問一次
+      }, 2500); // 2.5秒探頭問一次，溫柔不造成後端負擔
     }
     return () => clearInterval(timer);
-  }, [isSyncing, onUpdateComplete]);
+  }, [shouldPoll, onUpdateComplete]);
 
-  // 3. 手動更新處理
+  // 3. 手動更新處理 (保持原本的確認彈窗不變)
   const handleManualUpdate = async () => {
     if (!window.confirm("確定要更新全台股產業地圖嗎？預計需時 2 分鐘。")) return;
-
     setIsSyncing(true);
-    setHotProgress(0);
+    setValuechainProgress(0);
     setMsg("正在啟動背景同步任務...");
-
     try {
-      await fetch("http://localhost:5000/api/admin/update_industry_map", { method: 'POST' });
-    } catch (err) {
-      setMsg("連線失敗");
+      await fetch("http://localhost:5000/api/admin/update_valuechain", { method: 'POST' });
+    } catch {
       setIsSyncing(false);
     }
   };
 
-  // 4. 加載中狀態處理 (僅在完全沒資料且也沒在同步時顯示)
-  if ((!data || data === "loading") && !isSyncing) {
+  // 4. 加載中狀態處理：加入即時輪詢進度提示，讓體驗更棒
+  if (isDataLoading && !isSyncing) {
     return (
       <div className="py-40 text-center flex flex-col items-center">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">數據計算中...</p>
+        <p className="text-slate-400 font-black">資料初始化中... {valuechainProgress}%</p>
       </div>
     );
   }
 
-  // 子組件：液體卡片 (保持不變)
-  const LiquidCard = ({ item, isResonance, isHero }) => {
-  const isUp = item.change >= 0;
-  const waveColor = item.is_net_in ? '#fca5a5' : '#86efac'; 
-  const fillLevel = Math.min((item.flow || item.total_flow) * 2.5 + 15, 95);
-  const encodedColor = encodeURIComponent(waveColor);
-  const waveSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 20'%3E%3Cpath d='M0 10 Q100 0 200 10 T400 10 L400 20 L0 20 Z' fill='${encodedColor}'/%3E%3C/svg%3E`;
+  const formatSigned = (value, unit = '') => {
+    const num = Number(value || 0);
+    return `${num >= 0 ? '+' : ''}${num.toFixed(2)}${unit}`;
+  };
 
-  // 💡 調整卡片容器與 Padding
-  let containerClass = "relative overflow-hidden transition-all duration-300 shadow-md border border-slate-100 ";
-  let paddingClass = "p-5"; // 預設
+  const openIndustryDrawer = (industry) => {
+    setIsDrawerClosing(false);
+    setSelectedIndustry(industry);
+  };
 
-  if (isResonance) {
-    containerClass += "bg-white rounded-[28px] h-[190px] col-span-2 lg:col-span-1";
-  } else if (isHero) {
-    containerClass += "bg-white rounded-[24px] aspect-square hover:shadow-xl";
-    paddingClass = "p-6"; 
-  } else {
-    // 💡 小卡片模式：縮小圓角與內距
-    containerClass += "bg-white rounded-2xl aspect-square p-2"; 
-    paddingClass = "p-3"; 
-  }
+  const closeIndustryDrawer = () => {
+    setIsDrawerClosing(true);
+    setTimeout(() => {
+      setSelectedIndustry(null);
+      setIsDrawerClosing(false);
+    }, 220);
+  };
 
-  return (
-    <div className={containerClass}>
-      <div className="absolute bottom-0 left-0 w-full transition-all duration-[2s] ease-in-out z-0" 
-           style={{ height: `${fillLevel}%`, backgroundColor: waveColor }}>
-        <div className="absolute top-[-15px] left-0 w-[200%] h-5 animate-waveSlide" 
-             style={{ backgroundImage: `url("${waveSvg}")`, backgroundSize: '50% 100%' }}></div>
-      </div>
+  const LiquidCard = ({ item, isResonance, isHero, onSelect }) => {
+    const isUp = item.change >= 0;
+    const netValue = isResonance ? (item.flow || item.total_flow) : (item.flow || item.total_flow || 0);
+    const isNetIn = item.is_net_in ?? (netValue >= 0); // 相容後端的多空標記
 
-      {/* 💡 使用動態的 paddingClass */}
-      <div className={`relative z-10 h-full flex flex-col pointer-events-none ${paddingClass}`}>
-        
-        {/* 頂部區域 */}
-        <div className="flex justify-between items-start">
-          <span className="text-[9px] font-black uppercase tracking-tighter text-slate-400">
-            {isResonance ? 'Resonance' : ''}
-          </span>
-          <span className={`font-black bg-white/80 px-1.5 py-0.5 rounded shadow-sm border border-white/50 ${isUp ? 'text-red-500' : 'text-emerald-600'} ${isHero ? 'text-[11px]' : 'text-[9px]'}`}>
-            {isUp ? '▲' : '▼'} {Math.abs(item.change).toFixed(1)}%
-          </span>
+    const threshold = isResonance ? 1.5 : isHero ? 5.0 : 2.0;
+    const isStrong = Math.abs(netValue) >= threshold;
+
+    let waveColor = '#f1f5f9';
+    if (isNetIn) {
+      waveColor = isStrong ? '#f87171' : '#FDB4B4'; // 🔥 深紅（強進攻）/ 淺紅（弱吸籌）
+    } else {
+      waveColor = isStrong ? '#10b981' : '#63E9AA'; // ❄️ 深綠（強提款）/ 淺綠（弱調節）
+    }
+    const fillLevel = Math.min((item.flow || item.total_flow) * 2.5 + 15, 95);
+    const encodedColor = encodeURIComponent(waveColor);
+    const waveSvg = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 20'%3E%3Cpath d='M0 10 Q100 0 200 10 T400 10 L400 20 L0 20 Z' fill='${encodedColor}'/%3E%3C/svg%3E`;
+    let containerClass = "relative overflow-hidden transition-all duration-300 shadow-md border border-slate-100 ";
+    let paddingClass = "p-5";
+    if (isResonance) containerClass += "bg-white rounded-[28px] min-h-[190px] col-span-2 lg:col-span-1";
+    else if (isHero) { containerClass += "bg-white rounded-[24px] aspect-square hover:shadow-xl"; paddingClass = "p-6"; }
+    else { containerClass += "bg-white rounded-2xl aspect-square p-2"; paddingClass = "p-3"; }
+    if (onSelect) containerClass += " cursor-pointer hover:-translate-y-0.5 hover:shadow-xl";
+    return (
+      <div className={containerClass} onClick={onSelect}>
+        <div className="absolute bottom-0 left-0 w-full transition-all duration-[2s] ease-in-out z-0" style={{ height: `${fillLevel}%`, backgroundColor: waveColor }}>
+          <div className="absolute top-[-15px] left-0 w-[200%] h-5 animate-waveSlide" style={{ backgroundImage: `url("${waveSvg}")`, backgroundSize: '50% 100%' }}></div>
         </div>
-
-        {/* 主體區域 */}
-        <div className={`flex-1 flex flex-col justify-center items-start ${isHero ? 'mt-0' : 'mt-1'}`}>
-          <h4 className={`font-black text-slate-900 leading-tight tracking-tighter
-            ${isResonance ? 'text-2xl' : isHero ? 'text-2xl' : 'text-[12px]'}`}>
-            {item.name}
-          </h4>
-          
-          <div className="flex items-baseline gap-0.5">
-            <span className={`font-black tracking-tighter text-slate-900 
-              ${isResonance ? 'text-5xl' : isHero ? 'text-5xl' : 'text-xl'}`}>
-              {item.flow || item.total_flow}
-            </span>
-            <span className={`font-black text-slate-900/60 ${isHero ? 'text-lg' : 'text-[9px]'}`}>%</span>
+        <div className={`relative z-10 h-full flex flex-col pointer-events-none ${paddingClass}`}>
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-black tracking-wide text-slate-500 truncate max-w-[70%]">{isResonance ? 'Resonance' : (item.main || '')}</span>
+            <span className={`font-black bg-white/80 px-1.5 py-0.5 rounded shadow-sm border border-white/50 ${isUp ? 'text-red-500' : 'text-emerald-600'} ${isHero ? 'text-[11px]' : 'text-[9px]'}`}>{isUp ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%</span>
+          </div>
+          <div className={`flex-1 min-h-0 flex flex-col items-start overflow-hidden ${isResonance ? 'justify-start pt-3' : isHero ? 'justify-center mt-0' : 'justify-center mt-1'}`}>
+            <h4 className={`font-black text-slate-900 leading-tight tracking-tighter max-w-full break-words [overflow-wrap:anywhere] ${isResonance ? 'text-xl line-clamp-1' : isHero ? 'text-2xl line-clamp-3' : 'text-[13px] line-clamp-4'}`}>
+              {item.name}
+              {isResonance && (item.id || item.code) && (
+                <span className="text-sm font-medium text-slate-400 ml-1.5 tracking-normal">
+                  {item.id || item.code}
+                </span>
+              )}
+            </h4>
+            <div className="flex items-baseline gap-0.5">
+              <span className={`font-black tracking-tighter text-slate-900 ${isResonance ? 'text-4xl' : isHero ? 'text-5xl' : 'text-xl'}`}>
+                {item.flow || item.total_flow}
+              </span>
+              <span className={`font-black text-slate-900/60 ${isHero ? 'text-lg' : 'text-[9px]'}`}>
+                {isResonance ? '億' : '%'}
+              </span>
+            </div>
+          </div>
+          <div className={isResonance ? "mt-2" : isHero ? "mt-4" : "mt-1"}>
+            {isResonance ? (
+              <div className="flex flex-wrap gap-1">
+                {item.sectors && item.sectors.slice(0, 3).map((s, i) => <span key={i} className="bg-white/85 text-slate-900 px-2 py-1 rounded-md text-[9px] font-black shadow-sm border border-white/50 max-w-full truncate">{s}</span>)}
+              </div>
+            ) : (
+              <div className="bg-white/85 backdrop-blur-sm rounded-lg px-2.5 py-1 inline-block max-w-full shadow-sm border border-white/60">
+                <p className={`font-black tracking-normal leading-snug text-slate-900 ${isHero ? 'text-[12px]' : 'text-[9px]'} break-words [overflow-wrap:anywhere] line-clamp-2`}>{item.path}</p>
+              </div>
+            )}
           </div>
         </div>
-
-        {/* 底部區域：鏈端標籤 */}
-        <div className={isHero ? "mt-4" : "mt-1"}>
-          {isResonance ? (
-            <div className="flex flex-wrap gap-1">
-              {item.sectors && item.sectors.map((s, i) => (
-                <span key={i} className="bg-white/80 text-slate-900 px-2.5 py-1 rounded-md text-[10px] font-black shadow-sm border border-white/50">
-                  {s}
-                </span>
-              ))}
-            </div>
-          ) : (
-            // 💡 修正：確保在小卡片下路徑依然可見
-            <div className="bg-white/80 backdrop-blur-sm rounded-lg px-2 py-1 inline-block max-w-full shadow-sm border border-white/50">
-              <p className={`font-black uppercase tracking-tighter leading-none text-slate-900
-                ${isHero ? 'text-[13px]' : 'text-[9px]'} break-words line-clamp-2`}>
-                {item.path}
-              </p>
-            </div>
-          )}
-        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
   return (
     <div className="animate-fadeIn space-y-12 pb-20 relative">
-      {/* 1. 多產業共振核心 (3欄或大寬卡) */}
-      {data?.resonance?.length > 0 && (
+      {resonance?.length > 0 && (
         <section>
           <header className="mb-4 flex items-baseline gap-3">
             <h2 className="text-xl font-black text-amber-600 tracking-tighter">多產業共振核心</h2>
             <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Resonance Hubs</span>
           </header>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
-            {data.resonance.map((s) => <LiquidCard key={s.id} item={s} isResonance={true} />)}
-          </div>
+
+          {resonance && resonance.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
+              {resonance.map((d, i) => (
+                <LiquidCard key={i} item={d} isResonance={true} />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white/60 border border-dashed border-slate-200 rounded-[28px] p-10 text-center text-xs font-bold text-slate-400 tracking-wide shadow-sm">
+              今日市場資金集中於單一板塊，暫無跨產業共振個股
+            </div>
+          )}
         </section>
       )}
-
-      {/* 2. 今日價量領頭羊 (5欄大卡片) */}
       <section>
         <header className="mb-4 flex items-center justify-between px-2">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-xl font-black text-blue-900 tracking-tighter">今日價量領頭羊</h2>
-            <span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Top 5 Leaders</span>
-          </div>
-
-          {/* 重新抓取地圖按鈕 */}
-          <button
-            onClick={handleManualUpdate}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 group"
-          >
-            <svg className={`w-3 h-3 text-slate-400 group-hover:text-blue-500 ${isSyncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            <span className="text-[10px] font-black text-slate-400 group-hover:text-slate-600 uppercase">
-              {isSyncing ? `同步中 ${hotProgress}%` : '更新產業地圖'}
-            </span>
+          <div className="flex items-baseline gap-3"><h2 className="text-xl font-black text-blue-900 tracking-tighter">今日價量領頭羊</h2><span className="text-slate-400 text-[10px] tracking-widest font-black uppercase">Top 5 Leaders</span></div>
+          <button onClick={handleManualUpdate} disabled={isSyncing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50 group">
+            <svg className={`w-3 h-3 text-slate-400 group-hover:text-blue-500 ${isSyncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            <span className="text-[10px] font-black text-slate-400 group-hover:text-slate-600 uppercase">{isSyncing ? `同步中 ${valuechainProgress}%` : '更新產業地圖'}</span>
           </button>
         </header>
-
-        {/* 領頭羊卡片區 */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-          {data?.top5?.length > 0 ? (
-            data.top5.map((d, i) => <LiquidCard key={i} item={d} isHero={true} />)
-          ) : (
-            /* 如果沒領頭羊(盤勢極差)，顯示骨架屏 */
-            [1,2,3,4,5].map(i => <div key={i} className="aspect-square bg-slate-100 rounded-[24px] animate-pulse" />)
-          )}
+          {top5?.length > 0 ? top5.map((d, i) => <LiquidCard key={i} item={d} isHero={true} onSelect={() => openIndustryDrawer(d)} />) : [1, 2, 3, 4, 5].map(i => <div key={i} className="aspect-square bg-slate-100 rounded-[24px] animate-pulse" />)}
         </div>
       </section>
-
-      {/* 3. 全市場金流矩陣 (7欄小卡片) */}
       <section>
-        <header className="mb-4 flex items-baseline gap-3 opacity-50">
-          <h2 className="text-sm font-black text-slate-500 uppercase">全市場金流矩陣</h2>
-          <span className="text-slate-400 text-[9px] tracking-widest font-black">FULL MATRIX</span>
-        </header>
-        {/* 💡 修正為 lg:grid-cols-7 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          {data?.others?.map((d, i) => <LiquidCard key={i} item={d} isHero={false} />)}
-        </div>
+        <header className="mb-4 flex items-baseline gap-3 opacity-50"><h2 className="text-sm font-black text-slate-500 uppercase">全市場金流矩陣</h2><span className="text-slate-400 text-[9px] tracking-widest font-black">FULL MATRIX</span></header>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">{others?.map((d, i) => <LiquidCard key={i} item={d} isHero={false} onSelect={() => openIndustryDrawer(d)} />)}</div>
       </section>
-
-      <style>{`
-        @keyframes waveSlide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-        .animate-waveSlide { animation: waveSlide 4s linear infinite; }
-        @keyframes resonancePulse { 0%, 100% { border-color: rgba(245, 158, 11, 0.3); } 50% { border-color: rgba(245, 158, 11, 0.7); } }
-        .resonance-pulse { animation: resonancePulse 2s infinite; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
-      `}</style>
+      {selectedIndustry && createPortal(
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className={`absolute inset-0 bg-slate-950/20 ${isDrawerClosing ? 'valuechain-backdrop-out' : 'valuechain-backdrop-in'}`} onClick={closeIndustryDrawer}></div>
+          <aside className={`relative h-full w-full max-w-[410px] bg-white shadow-[-14px_0_34px_rgba(15,23,42,0.12)] border-l border-slate-200 flex flex-col ${isDrawerClosing ? 'valuechain-drawer-out' : 'valuechain-drawer-in'}`}>
+            <header className="px-5 py-4 border-b border-slate-100 bg-white">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black text-slate-400 tracking-widest">{selectedIndustry.main}</p>
+                  <h3 className="text-xl font-black text-slate-900 leading-tight mt-1">{selectedIndustry.name}</h3>
+                  <p className="text-xs font-bold text-slate-400 mt-1 line-clamp-2">{selectedIndustry.path}</p>
+                </div>
+                <button onClick={closeIndustryDrawer} className="shrink-0 w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-slate-50 font-black">×</button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-4">
+                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400">金流占比</p>
+                  <p className="text-base font-black text-slate-900">{Number(selectedIndustry.flow || 0).toFixed(2)}%</p>
+                </div>
+                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400">平均漲跌</p>
+                  <p className={`text-base font-black ${(selectedIndustry.change || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(selectedIndustry.change, '%')}</p>
+                </div>
+                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400">資金力道</p>
+                  <p className={`text-base font-black ${(selectedIndustry.net_force || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(selectedIndustry.net_force, '億')}</p>
+                </div>
+              </div>
+            </header>
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-100 text-[11px] text-slate-400">
+                  <tr>
+                    <th className="text-left font-black px-5 py-3">代碼 / 名稱</th>
+                    <th className="text-right font-black px-3 py-3">成交額</th>
+                    <th className="text-right font-black px-3 py-3">漲跌</th>
+                    <th className="text-right font-black px-5 py-3">資金</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedIndustry.components || []).map((stock) => (
+                    <tr key={stock.id} className="border-b border-slate-50 hover:bg-slate-50/80">
+                      <td className="px-5 py-3">
+                        <p className="font-black text-slate-900">{stock.name}</p>
+                        <p className="text-[11px] font-bold text-slate-400">{stock.id}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right font-bold text-slate-500">{Number(stock.amount || 0).toFixed(2)}億</td>
+                      <td className={`px-3 py-3 text-right font-black ${(stock.change || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(stock.change, '%')}</td>
+                      <td className={`px-5 py-3 text-right font-black ${(stock.net_force || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(stock.net_force, '億')}</td>
+                    </tr>
+                  ))}
+                  {(!selectedIndustry.components || selectedIndustry.components.length === 0) && (
+                    <tr>
+                      <td colSpan="4" className="px-5 py-16 text-center text-xs font-black text-slate-300">暫無產業內個股資料</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </aside>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
-

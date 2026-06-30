@@ -14,7 +14,7 @@ import os
 import codecs
 from scrapling import Fetcher
 import radar_select 
-import hotindustry
+import valuechain
 import threading
 
 
@@ -45,10 +45,10 @@ RADAR_LOCK = threading.Lock()
 INIT_PROGRESS = {
     "percentage": 0, "status": "IDLE", "current_item": "", "total_tasks": 0, "current_task_idx": 0, "is_done": False
 }
-HOT_PROGRESS = 0
-IS_HOT_RUNNING = False
+valuechain_PROGRESS = 0
+IS_valuechain_RUNNING = False
 MAP_FILE = "industry_map.json"
-HOT_MGR = hotindustry.HotIndustryManager(GLOBAL_STOCK_DB) # 🌟 改為大寫
+valuechain_MGR = valuechain.valuechainManager(GLOBAL_STOCK_DB) # 🌟 改為大寫
 
 
 # --- 1. 核心抓取工具 ---
@@ -250,7 +250,7 @@ def scrape_all_yahoo_classes():
         with open(MAP_FILE, 'w', encoding='utf-8') as f:
             json.dump(GLOBAL_STOCK_DB, f, ensure_ascii=False, indent=4)
         INIT_PROGRESS["is_done"] = True
-        print("產業地圖收錄完成。啟動主動同步任務...")
+        print("y股市地圖收錄完成。啟動主動同步任務...")
         threading.Thread(target=initial_data_sync, daemon=True).start()
     except Exception as e: print(f"地圖掃描異常: {e}")
 
@@ -373,7 +373,7 @@ def get_main_data():
             df['stock_id'] = df['stock_id'].astype(str).str.strip().apply(lambda x: "".join(filter(str.isdigit, x)))
             df['is_etf'] = df['stock_id'].apply(lambda x: len(x) != 4 or x.startswith('00'))
             
-            # --- 💡 這裡開始準備傳給 HOT_MGR 的資料 ---
+            # --- 💡 這裡開始準備傳給 valuechain_MGR 的資料 ---
             
             # 建立個股法人籌碼字典
             current_chip_map = {
@@ -407,11 +407,25 @@ def get_main_data():
             sector_dict = {}
             for _, row in df[~df['is_etf']].iterrows():
                 for t_name in set(v for v in row['all_tags'].values() if v and v != "一般個股"):
-                    if t_name not in sector_dict: sector_dict[t_name] = {"total":0.0, "f":0.0, "t":0.0, "d":0.0, "comps":[]}
-                    s = sector_dict[t_name]
-                    s["total"] += float(row['total']); s["f"] += float(row['foreign']); s["t"] += float(row['trust']); s["d"] += float(row['dealer'])
-                    s["comps"].append({"stock_id": row['stock_id'], "stock_name": row['stock_name'], "total": row['total']})
+        
 
+                    sub_sector_name = t_name 
+        
+                    if ">" in t_name:
+                        parts = [p.strip() for p in t_name.split(">")]
+                        if len(parts) >= 2:
+                            sub_sector_name = parts[1] 
+        
+                    if sub_sector_name not in sector_dict:
+                        sector_dict[sub_sector_name] = {"total": 0.0, "f": 0.0, "t": 0.0, "d": 0.0, "comps": []}
+            
+                    s = sector_dict[sub_sector_name]
+                    s["total"] += float(row['total'])
+                    s["f"] += float(row['foreign'])
+                    s["t"] += float(row['trust'])
+                    s["d"] += float(row['dealer'])
+                    s["comps"].append({"stock_id": row['stock_id'], "stock_name": row['stock_name'], "total": row['total']})
+                    
             sector_list = []
             for name, s in sector_dict.items():
                 if abs(s["total"]) < 1: continue
@@ -420,7 +434,7 @@ def get_main_data():
             # --- 6. 外部組件 (熱門產業：帶入法人與融資合力) ---
             try:
                 # 💡 傳入剛剛準備好的 chip_map 與 margin_map
-                hot_result = HOT_MGR.get_hot_industry_data(
+                valuechain_result = valuechain_MGR.get_valuechain_industry_data(
                     d_twse, 
                     GLOBAL_STOCK_DB, 
                     chip_map=current_chip_map, 
@@ -428,7 +442,7 @@ def get_main_data():
                 )
             except Exception as e:
                 print(f"熱門產業計算失敗: {e}")
-                hot_result = {"resonance": [], "top5": [], "others": []}
+                valuechain_result = {"resonance": [], "top5": [], "others": []}
 
             # --- 7. 排行榜格式化 ---
             clean_records = json.loads(df.to_json(orient='records'))
@@ -446,7 +460,7 @@ def get_main_data():
                 "date": str(d_twse),
                 "taiex": taiex,
                 "sentiment": sentiment,
-                "hot_map": hot_result or {"resonance": [], "top5": [], "others": []},
+                "valuechain_map": valuechain_result or {"resonance": [], "top5": [], "others": []},
                 "chip_map": current_chip_map, 
                 "margin_map": margin_map,
                 "summary": {"foreign": board["inst_f"], "trust": board["inst_t"], "dealer": board["inst_d"], "total": board["inst_total"]},
@@ -499,64 +513,64 @@ def get_radar(): return jsonify(RADAR_RESULTS)
 @app.route('/api/radar_progress')
 def get_radar_progress(): return jsonify({"progress": getattr(radar_select, 'PROGRESS', 0), "is_running": IS_RADAR_RUNNING})
 
-@app.route('/api/admin/update_industry_map', methods=['POST'])
-def force_update_industry_map():
-    global IS_HOT_RUNNING, HOT_PROGRESS
-    if IS_HOT_RUNNING:
+@app.route('/api/admin/update_valuechain_map', methods=['POST'])
+def force_update_valuechain_map():
+    global IS_valuechain_RUNNING, valuechain_PROGRESS
+    if IS_valuechain_RUNNING:
         return jsonify({"status": "busy", "message": "同步正在進行中"}), 400
     
     def run_task():
-        global IS_HOT_RUNNING, HOT_PROGRESS, GLOBAL_DATA_CACHE
-        IS_HOT_RUNNING = True
-        HOT_PROGRESS = 0
+        global IS_valuechain_RUNNING, valuechain_PROGRESS, GLOBAL_DATA_CACHE
+        IS_valuechain_RUNNING = True
+        valuechain_PROGRESS = 0
         try:
             def update_cb(p):
-                global HOT_PROGRESS
-                HOT_PROGRESS = p
+                global valuechain_PROGRESS
+                valuechain_PROGRESS = p
             
-            HOT_MGR.run_full_update(progress_cb=update_cb)
+            valuechain_MGR.run_full_update(progress_cb=update_cb)
             
             GLOBAL_DATA_CACHE = None
-            HOT_PROGRESS = 100
+            valuechain_PROGRESS = 100
         except Exception as e:
             print(f"地圖同步失敗: {e}")
         finally:
-            IS_HOT_RUNNING = False
+            IS_valuechain_RUNNING = False
 
     threading.Thread(target=run_task, daemon=True).start()
     return jsonify({"status": "started", "message": "產業地圖同步已在背景啟動"})
 
-@app.route('/api/hot_map')
-def get_hot_map_api():
+@app.route('/api/valuechain_map')
+def get_valuechain_map_api():
     global GLOBAL_DATA_CACHE
     
-    # 1. 檢查最終成品
-    if GLOBAL_DATA_CACHE and "hot_map" in GLOBAL_DATA_CACHE:
-        if GLOBAL_DATA_CACHE["hot_map"].get("top5") or GLOBAL_DATA_CACHE["hot_map"].get("others"):
-            return jsonify(GLOBAL_DATA_CACHE["hot_map"])
+    # 1. 優先檢查 Cache 裡是否有計算過的資料 (即使是空的也算資料)
+    if GLOBAL_DATA_CACHE and "valuechain_map" in GLOBAL_DATA_CACHE:
+        # 只要 key 存在，就代表計算邏輯跑過了，直接回傳
+        return jsonify(GLOBAL_DATA_CACHE["valuechain_map"])
 
-    # 2. 💡 主動補位邏輯：如果原料已經就緒（chip_map），但 hot_map 還是空的
+    # 2. 如果只有原料沒有成品，主動算一次
     if GLOBAL_DATA_CACHE and "chip_map" in GLOBAL_DATA_CACHE:
-        print("🔄 [系統] 偵測到原料已就緒，主動執行熱門產業計算...")
         try:
-            hot_result = HOT_MGR.get_hot_industry_data(
+            hot_result = valuechain_MGR.get_valuechain_industry_data(
                 GLOBAL_DATA_CACHE["date"],
                 GLOBAL_STOCK_DB,
                 chip_map=GLOBAL_DATA_CACHE["chip_map"],
                 margin_map=GLOBAL_DATA_CACHE["margin_map"]
             )
             if hot_result:
-                GLOBAL_DATA_CACHE["hot_map"] = hot_result
+                GLOBAL_DATA_CACHE["valuechain_map"] = hot_result # 更新快取
                 return jsonify(hot_result)
         except Exception as e:
             print(f"❌ 主動計算失敗: {e}")
 
-    return jsonify({"status": "loading"}), 202
+    # 3. 只有完全沒資料時才回傳 Loading
+    return jsonify({"status": "loading", "resonance": [], "top5": [], "others": []}), 202
 
-@app.route('/api/hot_progress')
-def get_hot_progress():
-    global HOT_PROGRESS, IS_HOT_RUNNING
-    return jsonify({"progress": HOT_PROGRESS, "is_running": IS_HOT_RUNNING})
+@app.route('/api/valuechain_progress')
+def get_valuechain_progress():
+    global valuechain_PROGRESS, IS_valuechain_RUNNING
+    return jsonify({"progress": valuechain_PROGRESS, "is_running": IS_valuechain_RUNNING})
 
 if __name__ == '__main__':
     threading.Thread(target=scrape_all_yahoo_classes, daemon=True).start()
