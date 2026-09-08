@@ -9,20 +9,23 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import concurrent.futures 
+import random
+
+
+HISTORY_SCHEMA_VERSION = 3
+MAX_HISTORY_GAP_DAYS = 7
 
 class valuechainManager:
-    def __init__(self, industry_db, cache_file="valuechain.json"):
-        """ 
-        industry_db: 傳入主程式的 GLOBAL_STOCK_DB (Yahoo 標籤)
-        cache_file: 儲存櫃買中心詳細價值鏈地圖的本地檔案
-        """
+    def __init__(self, industry_db, cache_file="valuechain.json", history_file="industry_history.json"):
         self.industry_db = industry_db
         self.cache_file = cache_file
-        self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
-        self.valuechain_map = {} # 存放櫃買中心的詳細地圖
+        self.history_file = history_file
+        self.history_data = self._load_history()
+        self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'}
+        self.valuechain_map = {} 
         self.last_update_date = ""
 
-        # 47 個產業代碼配置
         self.ic_config = {
             'D000': '半導體', 'C100': '製藥', 'C200': '醫療器材', 'C300': '食品生技', 'C400': '再生醫療',
             'A300': '電動車輛', 'A200': 'LED照明', 'A100': '太陽能', 'AB10': '汽電共生', 'AB20': '風力發電',
@@ -35,175 +38,117 @@ class valuechainManager:
             'S000': '建材營造', 'T000': '交通運輸及航運', 'U000': '金融', 'V000': '貿易百貨', 'W000': '油電燃氣',
             'Y000': '文化創意', 'X000': '其他'
         }
-        
         self._load_cache_or_check_update()
-
-    def _clean_num(self, val):
-        if val is None: return 0.0
-        try: return float(str(val).replace(',', '').replace('"', '').strip())
-        except: return 0.0
-
-    def _valuechain_level2_name(self, path_item):
-        parts = [part.strip() for part in str(path_item.get("path", "")).split(">") if part.strip()]
-        if len(parts) >= 2:
-            return parts[1]
-        return path_item.get("main", "其他")
-
-    def _valuechain_group_key(self, path_item):
-        return f"{path_item.get('main', '其他')}::{self._valuechain_level2_name(path_item)}"
-
-    def _valuechain_display_path(self, path):
-        parts = [part.strip() for part in str(path).split(">") if part.strip()]
-        if len(parts) >= 3 and parts[2] == "一般":
-            parts = parts[:2]
-        return " > ".join(parts) if parts else str(path)
-
-    def _valuechain_detail_name(self, path):
-        parts = [part.strip() for part in str(path).split(">") if part.strip()]
-        if len(parts) >= 3 and parts[2] != "一般":
-            return parts[2]
-        if len(parts) >= 2:
-            return parts[1]
-        return str(path)
-
-    def _get_session(self):
-        s = requests.Session()
-        retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-        s.mount('https://', HTTPAdapter(max_retries=retries))
-        return s
-
-    def _load_cache_or_check_update(self):
-        if os.path.exists(self.cache_file):
-            try:
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
-                    cache_data = json.load(f)
-                    self.last_update_date = cache_data.get("update_date", "2000-01-01")
-                    last_dt = datetime.strptime(self.last_update_date, "%Y-%m-%d")
-                    if datetime.now() - last_dt < timedelta(days=90):
-                        self.valuechain_map = cache_data.get("map", {})
-                        print(f"[ValueChain] 載入本地產業地圖 (上次更新: {self.last_update_date})")
-                        return
-            except: pass
-        print("[ValueChain] 快取過期或不存在，需執行價值鏈爬蟲更新數據")
-
-    def run_full_update(self, progress_cb=None):
-        session = self._get_session()
-        new_map = {}
-        dedup = set()
-        total_ics = len(self.ic_config)
-
-        for idx, (ic_code, ic_name) in enumerate(self.ic_config.items()):
-            try:
-                url = f"https://ic.tpex.org.tw/introduce.php?ic={ic_code}"
-                res = session.get(url, headers=self.headers, timeout=30)
-                soup = BeautifulSoup(res.content, 'html.parser')
-                for ns in soup.find_all("noscript"): ns.decompose()
-                if progress_cb: progress_cb(int(((idx + 1) / total_ics) * 100))
-
-                chain_containers = soup.find_all("div", class_="chain")
-                for container in chain_containers:
-                    title_div = container.find(class_=["chain-title-panel", "blockchain-title-panel"]) or container.find("h4")
-                    chain_text = title_div.get_text(strip=True) if title_div else "其他"
-                    
-                    for link in container.find_all("div", id=re.compile(r"ic_link_")):
-                        sub_ic_id = link.get('id').replace("ic_link_", "")
-                        sub_ic_name = link.get_text(strip=True).replace("\n", " ").strip()
-                        list_div = soup.find(id=f"companyList_{sub_ic_id}")
-                        if not list_div: continue
-
-                        sc_links = list_div.find_all(id=re.compile(r"sc_link_"))
-                        if sc_links:
-                            for sc in sc_links:
-                                sc_id = sc.get('id').replace("sc_link_", "")
-                                sc_name = re.sub(r'[\(（].*?[\)內]', '', sc.get_text(strip=True)).replace("►", "").replace("▶", "").strip()
-                                table = list_div.find("table", id=f"sc_company_{sc_id}")
-                                if table: self._process_v22_table(table, ic_name, chain_text, sub_ic_name, sc_name, new_map, dedup)
-                        else:
-                            for tb in list_div.find_all("table"):
-                                self._process_v22_table(tb, ic_name, chain_text, sub_ic_name, "一般", new_map, dedup)
-                time.sleep(0.1)
-            except: continue
-
-        self.valuechain_map = new_map
-        self.last_update_date = datetime.now().strftime("%Y-%m-%d")
-        with open(self.cache_file, 'w', encoding='utf-8') as f:
-            json.dump({"update_date": self.last_update_date, "map": self.valuechain_map}, f, ensure_ascii=False, indent=4)
-
-    def _strip_parens(self, text):
-        """移除字串中的括號內容，例如「網路設備(如數據機...)」→「網路設備」"""
-        if not text:
-            return text
-        return re.sub(r'[\(（][^)）]*[\)）]', '', text).strip()
-
-    def _process_v22_table(self, table, main_cat, chain, sub, detail, target_map, dedup):
-        current_market = "未分類"
-        # 🌟 先清理掉括號內容，避免顯示時出現冗長補充說明
-        chain = self._strip_parens(chain)
-        sub = self._strip_parens(sub)
-        detail = self._strip_parens(detail)
         
-        for el in table.find_all(['b', 'a']):
-            text = el.get_text(strip=True)
-            if el.name == 'b':
-                if any(k in text for k in ["本國上市", "本國上櫃", "本國興櫃", "外國上市", "外國上櫃", "外國興櫃"]):
-                    current_market = re.sub(r'[\(（].*?[\)內]', '', text).strip()
-            elif el.name == 'a':
-                href = el.get('href', '')
-                if "company_basic.php" in href and "知名外國企業" not in current_market:
-                    stk_match = re.search(r'stk_code=(\w+)', href)
-                    if stk_match:
-                        sid = stk_match.group(1)
-                        unique_key = f"{sid}_{sub}_{detail}"
-                        if unique_key not in dedup:
-                            target_map[sid] = target_map.get(sid, [])
-                            target_map[sid].append({"main": main_cat, "path": f"{chain} > {sub} > {detail}"})
-                            dedup.add(unique_key)
+    def _load_history(self):
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("_schema_version") == HISTORY_SCHEMA_VERSION
+                    and isinstance(payload.get("dates"), dict)
+                ):
+                    return payload["dates"]
+                if payload:
+                    print("[ValueChain] 舊版歷史資料口徑不一致，將重新回填。")
+                return {}
+            except: return {}
+        return {}
 
-    def fetch_market_prices(self, date_str):
-        """ 🌟 單位校正：官方 OpenAPI 原始單位即為元，除以 1 億換算成實體新台幣億元 """
-        stock_data = {}
-        total_amt = 0
+    def _save_history(self):
+        sorted_dates = sorted(self.history_data.keys(), reverse=True)[:40]
+        self.history_data = {d: self.history_data[d] for d in sorted_dates}
+        with open(self.history_file, 'w', encoding='utf-8') as f:
+            json.dump({
+                "_schema_version": HISTORY_SCHEMA_VERSION,
+                "dates": self.history_data,
+            }, f, ensure_ascii=False, indent=4)
+
+    def sync_historical_data(self, anchor_date, progress_cb=None):
+        needed_dates = []
+        check_dt = datetime.strptime(anchor_date, "%Y%m%d")
+        REQUIRED_KEYS = {"net_force", "inst_net", "change"}
+        for i in range(1, 30):
+            d_str = (check_dt - timedelta(days=i)).strftime("%Y%m%d")
+            if datetime.strptime(d_str, "%Y%m%d").weekday() < 5:
+                should_refetch = False
+                if d_str not in self.history_data: should_refetch = True
+                else:
+                    day_content = self.history_data[d_str]
+                    if not day_content: should_refetch = True
+                    else:
+                        sample = next(iter(day_content.values()))
+                        if not REQUIRED_KEYS.issubset(sample.keys()): should_refetch = True
+                if should_refetch: needed_dates.append(d_str)
+            if len(needed_dates) >= 20: break 
+
+        if not needed_dates: return
+        print(f"[ValueChain] 自動補齊啟動: {needed_dates}")
+        session = self._get_session()
+        for d in needed_dates:
+            if self._fetch_and_store_historical_day(session, d):
+                self._save_history()
+            time.sleep(random.randint(10, 15))
+
+    def _fetch_and_store_historical_day(self, session, d_str):
+        """ 修正：修復 Key 缺失導致的崩潰與邏輯錯誤 """
         try:
-            # 1. 上市行情同步
-            r_tse = requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", headers=self.headers, timeout=15)
-            if r_tse.status_code == 200:
-                for r in r_tse.json():
-                    sid = r.get('Code', '').strip()
-                    if len(sid) == 4 and sid.isdigit():
-                        amt = self._clean_num(r.get('TradeValue')) / 100000000 
-                        close = self._clean_num(r.get('ClosingPrice'))
-                        change = self._clean_num(r.get('Change'))
-                        prev_close = close - change
-                        pct = round((change / prev_close) * 100, 2) if prev_close > 0 else 0.0
-                        stock_data[sid] = {"name": r.get('Name', '').strip(), "amount": amt, "change_pct": pct, "price": close}
-                        total_amt += amt
+            t_i = session.get(f"https://www.twse.com.tw/fund/T86?response=json&date={d_str}&selectType=ALL", timeout=20).json()
+            if t_i.get('stat') != 'OK': return False
+            time.sleep(2)
+            t_p = session.get(f"https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date={d_str}&type=ALLBUT0999", timeout=20).json()
+            
+            d_otc = f"{int(d_str[:4])-1911}/{d_str[4:6]}/{d_str[6:]}"
+            o_i = session.get(f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_otc}", timeout=20).json()
+            o_p = session.get(f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&d={d_otc}&o=json", timeout=20).json()
 
-            # 2. 上櫃行情同步
-            r_otc = requests.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes", headers=self.headers, timeout=15)
-            if r_otc.status_code == 200:
-                for r in r_otc.json():
-                    sid = r.get('SecuritiesCompanyCode', '').strip()
-                    if len(sid) == 4 and sid.isdigit():
-                        amt = self._clean_num(r.get('TransactionAmount')) / 100000000 
-                        close = self._clean_num(r.get('Close'))
-                        change = self._clean_num(r.get('Change'))
-                        prev_close = close - change
-                        pct = round((change / prev_close) * 100, 2) if prev_close > 0 else 0.0
-                        stock_data[sid] = {"name": r.get('CompanyName', '').strip(), "amount": amt, "change_pct": pct, "price": close}
-                        total_amt += amt
-                        
-            print(f"[ValueChain] OpenAPI 行情校正完畢，全市場總金額: {total_amt:.2f} 億元")
-        except Exception as e:
-            print(f"[ValueChain] OpenAPI 同步異常: {e}")
-        return stock_data, total_amt
+            full_inst, full_price = {}, {}
+            for r in t_i.get('data', []):
+                if len(r) > 18: full_inst[str(r[0]).strip()] = float(str(r[18]).replace(',', ''))
+            
+            for k in ['data9', 'data8', 'data10']:
+                if k in t_p:
+                    for r in t_p[k]:
+                        if len(r) > 10:
+                            sid, close, chg_v = str(r[0]).strip(), self._clean_num(r[8]), self._clean_num(r[10])
+                            sign = -1 if 'green' in str(r[9]) or '-' in str(r[9]) else 1
+                            full_price[sid] = {"p": close, "c": chg_v * sign}
+                    break
+
+            o_i_data = o_i['tables'][0].get('data', []) if o_i and 'tables' in o_i else []
+            for r in o_i_data:
+                if len(r) > 23: full_inst[str(r[0]).strip()] = float(str(r[23]).replace(',', ''))
+            
+            o_p_data = o_p['tables'][0].get('data', []) if o_p and 'tables' in o_p else []
+            for r in o_p_data:
+                if len(r) > 3: full_price[str(r[0]).strip()] = {"p": self._clean_num(r[2]), "c": self._clean_num(r[3])}
+
+            daily_snapshot = {}
+            for sid, info in full_price.items():
+                paths = self.valuechain_map.get(sid) or self.valuechain_map.get(sid.zfill(6))
+                if not paths or sid not in full_inst: continue
+                nf = (full_inst[sid] * info['p']) / 100000000
+                pc = (info['c'] / (info['p'] - info['c']) * 100) if (info['p'] - info['c']) != 0 else 0
+                unique_groups = {self._valuechain_group_key(p) for p in paths}
+                for g in unique_groups:
+                    if g not in daily_snapshot: daily_snapshot[g] = {"nf": 0.0, "inst": 0.0, "cs": []}
+                    daily_snapshot[g]["nf"] += nf
+                    daily_snapshot[g]["inst"] += nf
+                    daily_snapshot[g]["cs"].append(pc)
+
+            if daily_snapshot:
+                self.history_data[d_str] = {
+                    k: { "net_force": round(v["nf"], 2), "inst_net": round(v["inst"], 2), "change": round(sum(v["cs"])/len(v["cs"]), 2) } 
+                    for k, v in daily_snapshot.items()
+                }
+                return True
+        except Exception as e: print(f"背景同步失敗 ({d_str}): {e}")
+        return False
 
     def get_valuechain_industry_data(self, date_str, current_db, chip_map, margin_map, radar_data=None):
-        """
-        全域核心大腦計算
-        chip_map: 來自 app.py 傳入的各股法人買賣超 (單位為仟元，需在此處校正為億元)
-        margin_map: 來自 app.py 傳入的融資增減明細 (單位為張)
-        radar_data: 傳入雷達數據快取，用以直接抓取最新的 5日均量與當日量比
-        """
+        """ 修正：變數對齊與異常標籤邏輯優化 """
         if not self.valuechain_map:
             self._load_cache_or_check_update()
             if not self.valuechain_map: return {"resonance": [], "top5": [], "others": []}
@@ -211,23 +156,17 @@ class valuechainManager:
         stock_prices, total_mkt_amount = self.fetch_market_prices(date_str)
         if total_mkt_amount == 0: return {"resonance": [], "top5": [], "others": []}
 
-        # --- 步驟 1：統計 47 大產業大類金流與多空趨勢 ---
         industry_agg = {}
         for sid, info in stock_prices.items():
             paths = self.valuechain_map.get(sid, [])
             if not paths: continue
             
-            # 🌟 法人籌碼仟元 → 億元校正 + 融資張數金額化校正
-            inst_net = chip_map.get(sid, {}).get('total', 0) / 100000   # 仟元 → 億元
-            retail_shares = margin_map.get(sid, {}).get('f_change', 0) 
-            retail_estimated_billion = (retail_shares * info["price"] * 1000) / 100000000
+            # 修正：法人金額換算
+            raw_inst_lots = chip_map.get(sid, {}).get('total', 0)
+            inst_net_billion = (raw_inst_lots * info["price"]) / 100000   
             
-            # 個股的實體真實多空聚集金額 (億元)
-            combined_force_billion = inst_net + retail_estimated_billion
-
-            # 防止一檔股票在櫃買價值鏈中，被貼了多個一模一樣的大類標籤，進行去重
-            unique_group_keys = list(set([self._valuechain_group_key(p) for p in paths]))
-            weight_divider = len(unique_group_keys) if unique_group_keys else 1
+            margin_lot_change = margin_map.get(sid, {}).get('f_change', 0)
+            margin_net_billion = (margin_lot_change * info["price"] * 1000) / 100000000
 
             seen_groups = set()
             for p in paths:
@@ -236,124 +175,197 @@ class valuechainManager:
                     industry_agg[name] = {
                         "name": self._valuechain_level2_name(p),
                         "main": p.get("main", "其他"),
-                        "amount": 0.0,
-                        "changes": [],
-                        "sub_paths": {},
-                        "net_force": 0.0,
-                        "components": {}
+                        "amount": 0.0, "changes": [], "sub_paths": {}, 
+                        "net_inst": 0.0, "margin_net": 0.0, "components": {}
                     }
             
                 if name not in seen_groups:
-                    # 均分灌入，防止產業成交量自我繁衍假膨脹
-                    industry_agg[name]["amount"] += (info["amount"] / weight_divider)
+                    # 🌟 修正：個股異常判斷 (基於純法人)
+                    is_abnormal_buy = inst_net_billion > 5.0 or (inst_net_billion > 1.0 and (inst_net_billion / (info["amount"] or 1)) > 0.15)
+                    is_abnormal_sell = inst_net_billion < -5.0 or (inst_net_billion < -1.0 and (abs(inst_net_billion) / (info["amount"] or 1)) > 0.15)
+                    
+                    industry_agg[name]["amount"] += info["amount"]
                     industry_agg[name]["changes"].append(info["change_pct"])
-                    industry_agg[name]["net_force"] += (combined_force_billion / weight_divider)
+                    industry_agg[name]["net_inst"] += inst_net_billion
+                    industry_agg[name]["margin_net"] += margin_net_billion
+                    
                     industry_agg[name]["components"][sid] = {
-                        "id": sid,
-                        "name": info["name"],
-                        "amount": round(info["amount"], 2),
-                        "change": info["change_pct"],
-                        "net_force": round(combined_force_billion, 2),
-                        "price": info["price"]
+                        "id": sid, "name": info["name"], "amount": round(info["amount"], 2),
+                        "change": info["change_pct"], 
+                        "net_force": round(inst_net_billion, 2),
+                        "inst_net": round(inst_net_billion, 2), 
+                        "margin_net": round(margin_net_billion, 2),
+                        "price": info["price"],
+                        "is_abnormal": is_abnormal_buy or is_abnormal_sell,
+                        "abnormal_type": "buy" if is_abnormal_buy else "sell" if is_abnormal_sell else None
                     }
                     seen_groups.add(name)
-                
-                # 詳細細分路徑成交量追蹤
                 industry_agg[name]["sub_paths"][p['path']] = industry_agg[name]["sub_paths"].get(p['path'], 0) + info["amount"]
 
-        # 整理全市場大類金流基礎占比
-        all_industries_list = [{"key": key, "flow_val": data["amount"]} for key, data in industry_agg.items() if data["changes"]]
-        top_12_keys = [x['key'] for x in sorted(all_industries_list, key=lambda x: x['flow_val'], reverse=True)[:12]]
-
-        # --- 步驟 2：多產業共振核心個股篩選（方案二：金額 × 量比加權加強版） ---
-        # 1. 基礎門檻過濾：當日必須是聚集最多資金上漲（漲幅 >= 2.0% 且成交金額 > 0.4億）
-        rising_pool = [(sid, info) for sid, info in stock_prices.items() if info["change_pct"] >= 2.0 and info["amount"] >= 0.4]
+        history_dates = self._recent_history_dates(date_str)
         
-        resonance_candidates = []
-        for sid, info in rising_pool:
-            paths = self.valuechain_map.get(sid, [])
-            if not paths: continue
-
-            # 取出個股的所有大產業標籤，並篩選出當日最吸金的前 12 名熱門流入產業 (net_force > 0)
-            matched_sector_keys = list(set([
-                self._valuechain_group_key(p)
-                for p in paths
-                if self._valuechain_group_key(p) in top_12_keys
-                and industry_agg.get(self._valuechain_group_key(p), {}).get("net_force", 0) > 0
-            ]))
-            
-            if len(matched_sector_keys) >= 2:
-                # 🌟 方案二加權核心：引入當日量比
-                vol_ratio = 1.0
-                if radar_data and "groups" in radar_data:
-                    # 從雷達數據緩存中嘗試精準撈出這檔股票的量比欄位
-                    for gk, gv in radar_data["groups"].items():
-                        for radar_item in gv:
-                            if str(radar_item.get("stock_id")).strip() == str(sid).strip():
-                                vol_ratio = radar_item.get("vol_ratio", 1.0)
-                                break
-
-                # 計算這檔股票當日真實的『多空聚集總量』(億元)
-                inst_net = chip_map.get(sid, {}).get('total', 0) / 100000   # 仟元 → 億元
-                retail_shares = margin_map.get(sid, {}).get('f_change', 0)
-                actual_net_gather = inst_net + ((retail_shares * info["price"] * 1000) / 100000000)
-                
-                # 🌟 排行綜合評分 = 聚集量絕對值 * 當日量比 (量能爆發加權)
-                ranking_score = abs(actual_net_gather) * vol_ratio
-
-                # 按熱度降序排列股票身上的產業標籤
-                matched_sector_keys.sort(key=lambda s: industry_agg.get(s, {}).get("amount", 0), reverse=True)
-                best_detail_path = " | ".join(list(set([self._valuechain_detail_name(p['path']) for p in paths if self._valuechain_group_key(p) in matched_sector_keys])))
-                matched_sectors = [industry_agg[k]["name"] for k in matched_sector_keys[:3]]
-
-                resonance_candidates.append({
-                    "id": sid,
-                    "name": info["name"],
-                    "change": info["change_pct"],
-                    "flow_display": round(actual_net_gather, 2),
-                    "total_flow": round((info["amount"] / total_mkt_amount) * 100, 2),
-                    "sectors": matched_sectors,
-                    "path_detail": best_detail_path,
-                    "ranking_score": ranking_score,
-                    "is_net_in": actual_net_gather >= 0
-                })
-
-        # 共振核心依據 綜合量能加權評分（Score）進行由大到小降序，完美淘汰死氣沉沉的高價高基數股
-        final_resonance = sorted(resonance_candidates, key=lambda x: x['ranking_score'], reverse=True)[:5]
-
-        # --- 步驟 3：今日價量領頭羊 & 全市場金流矩陣（同源切分、完美降序） ---
         all_industry_results = []
         for name, data in industry_agg.items():
             if not data["changes"]: continue
-            best_path = max(data["sub_paths"], key=data["sub_paths"].get)
             
+            inst_series = [data["net_inst"]]
+            change_series = [sum(data["changes"]) / len(data["changes"])]
+            
+            for d in history_dates:
+                h_item = self.history_data[d].get(name)
+                if not h_item:
+                    break
+                inst_series.append(h_item.get("inst_net", h_item.get("net_force", 0)))
+                change_series.append(h_item.get("change", 0))
+
+            observations = len(inst_series)
+            ins_5d = sum(inst_series[:5]) if observations >= 5 else None
+            ins_20d = sum(inst_series[:20]) if observations >= 20 else None
+            chg_5d = None
+            if len(change_series) >= 5:
+                compound = 1.0
+                for daily_change in change_series[:5]:
+                    compound *= 1 + (daily_change / 100)
+                chg_5d = (compound - 1) * 100
+            
+            streak = 0
+            current_inst = data["net_inst"]
+            if current_inst != 0:
+                is_inflow = current_inst > 0
+                for institutional_flow in inst_series:
+                    if institutional_flow == 0 or (institutional_flow > 0) != is_inflow:
+                        break
+                    streak += 1
+            final_streak = streak if current_inst >= 0 else -streak
+
+            previous_inst = inst_series[1:6]
+            accel = round(current_inst - (sum(previous_inst) / len(previous_inst)), 2) if previous_inst else None
+
+            best_path = max(data["sub_paths"], key=data["sub_paths"].get)
             all_industry_results.append({
-                "key": name,
-                "name": data["name"],
-                "main": data["main"],
-                "flow": round((data["amount"] / total_mkt_amount) * 100, 2), # 🌟 水波紋高度與全局排序唯一依據：金流占比
-                "change": round(sum(data["changes"]) / len(data["changes"]), 2), # 右上角平均漲跌幅
-                "flow_display": round(data["net_force"], 2), # 卡片中央顯示實體資金聚集/逃出量 (億元)
+                "key": name, "name": data["name"], "main": data["main"],
+                "flow": round((data["amount"] / total_mkt_amount) * 100, 2),
+                "change": round(change_series[0], 2),
+                # 保留 net_force 欄位供既有卡片使用，但口徑統一為純法人淨買超。
+                "net_force": round(data["net_inst"], 2),
+                "net_inst_1d": round(data["net_inst"], 2),
+                "margin_net_1d": round(data["margin_net"], 2),
+                "inst_net_5d": round(ins_5d, 2) if ins_5d is not None else None,
+                "inst_net_20d": round(ins_20d, 2) if ins_20d is not None else None,
+                "change_5d": round(chg_5d, 2) if chg_5d is not None else None,
+                "inflow_streak": final_streak,
+                "accel": accel,
+                "history_days": observations,
                 "path": self._valuechain_display_path(best_path),
-                "is_net_in": data["net_force"] >= 0, # 正數為紅，負數為綠
-                "net_force": data["net_force"],
+                "is_net_in": data["net_inst"] >= 0,
                 "components": sorted(data["components"].values(), key=lambda x: x["amount"], reverse=True)[:30]
             })
 
-        # 全市場 47 個產業，嚴格遵循「當日金流占比 (flow %)」由大到小降序大排列
-        global_sorted_industries = sorted(all_industry_results, key=lambda x: x['flow'], reverse=True)
+        self.history_data[date_str] = { 
+            r['key']: {"net_force": r['net_force'], "inst_net": r['net_inst_1d'], "change": r['change']} 
+            for r in all_industry_results 
+        }
+        self._save_history()
 
-        # 頂部價量領頭羊條件：必須是金流占比前列、且主力資金呈聚集狀態 (net_force > 0) 且平均在上漲的產業
-        leaders_pool = [r for r in global_sorted_industries if r['is_net_in'] and r['change'] > 0]
+        global_sorted = sorted(all_industry_results, key=lambda x: x['flow'], reverse=True)
+        leaders_pool = [r for r in global_sorted if r['is_net_in'] and r['change'] > 0]
         top5 = leaders_pool[:5]
         top5_keys = [x['key'] for x in top5]
-        
-        # 全市場金流矩陣：完美切分，裝載除了那 5 個領頭羊之外的「其餘所有產業」，並維持一貫的降序階梯排列
-        others = [r for r in global_sorted_industries if r['key'] not in top5_keys]
+        others = [r for r in global_sorted if r['key'] not in top5_keys]
 
-        return {
-            "resonance": final_resonance,
-            "top5": top5,
-            "others": others,
-            "last_update": self.last_update_date
-        }
+        return {"resonance": [], "top5": top5, "others": others, "last_update": self.last_update_date}
+
+    def run_full_update(self, progress_cb=None):
+        """重新載入獨立產業鏈快取，不使用 Yahoo 分類覆寫它。"""
+        if progress_cb:
+            progress_cb(10)
+        if not self._load_cache_or_check_update():
+            raise RuntimeError(f"無法讀取有效的獨立產業鏈檔案: {self.cache_file}")
+        if progress_cb:
+            progress_cb(100)
+        print(f"[ValueChain] 已重新載入獨立產業鏈，共 {len(self.valuechain_map)} 檔個股。")
+        return True
+
+    # --- 4. 輔助工具方法 (去重整理) ---
+
+    def _clean_num(self, val):
+        if val is None: return 0.0
+        try: return float(str(val).replace(',', '').replace('"', '').replace('=', '').strip())
+        except: return 0.0
+
+    def _strip_parens(self, text):
+        if not text: return text
+        return re.sub(r'[\(（][^)）]*[\)內舉]', '', text).strip()
+
+    def _valuechain_level2_name(self, path_item):
+        parts = [part.strip() for part in str(path_item.get("path", "")).split(">") if part.strip()]
+        return parts[1] if len(parts) >= 2 else path_item.get("main", "其他")
+
+    def _valuechain_group_key(self, path_item):
+        return f"{path_item.get('main', '其他')}::{self._valuechain_level2_name(path_item)}"
+
+    def _valuechain_display_path(self, path):
+        parts = [part.strip() for part in str(path).split(">") if part.strip()]
+        if len(parts) >= 3 and parts[2] == "一般": parts = parts[:2]
+        return " > ".join(parts) if parts else str(path)
+
+    def _recent_history_dates(self, date_str):
+        """只接受日期連續的近期資料，避免用過舊資料冒充近 5／20 日。"""
+        try:
+            cursor = datetime.strptime(date_str, "%Y%m%d")
+        except ValueError:
+            return []
+
+        result = []
+        for history_date in sorted((d for d in self.history_data if d < date_str), reverse=True):
+            try:
+                history_dt = datetime.strptime(history_date, "%Y%m%d")
+            except ValueError:
+                continue
+            if (cursor - history_dt).days > MAX_HISTORY_GAP_DAYS:
+                break
+            result.append(history_date)
+            cursor = history_dt
+        return result
+
+    def fetch_market_prices(self, date_str):
+        stock_data, total_amt = {}, 0
+        try:
+            r_tse = requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", headers=self.headers, timeout=15).json()
+            for r in r_tse:
+                sid = r.get('Code', '').strip()
+                if len(sid) == 4 and sid.isdigit():
+                    amt, close, chg = self._clean_num(r.get('TradeValue')) / 100000000, self._clean_num(r.get('ClosingPrice')), self._clean_num(r.get('Change'))
+                    stock_data[sid] = {"name": r.get('Name', '').strip(), "amount": amt, "price": close, "change_pct": round(chg/(close-chg)*100, 2) if close!=chg else 0}
+                    total_amt += amt
+            r_otc = requests.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes", headers=self.headers, timeout=15).json()
+            for r in r_otc:
+                sid = r.get('SecuritiesCompanyCode', '').strip()
+                if len(sid) == 4 and sid.isdigit():
+                    amt, close, chg = self._clean_num(r.get('TransactionAmount')) / 100000000, self._clean_num(r.get('Close')), self._clean_num(r.get('Change'))
+                    stock_data[sid] = {"name": r.get('CompanyName', '').strip(), "amount": amt, "price": close, "change_pct": round(chg/(close-chg)*100, 2) if close!=chg else 0}
+                    total_amt += amt
+        except: pass
+        return stock_data, total_amt
+
+    def _load_cache_or_check_update(self):
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                valuechain_map = cache_data.get("map", {})
+                if not isinstance(valuechain_map, dict) or not valuechain_map:
+                    return False
+                self.last_update_date = cache_data.get("update_date", "2000-01-01")
+                self.valuechain_map = valuechain_map
+                print(f"[ValueChain] 載入獨立產業鏈 ({self.last_update_date})")
+                return True
+            except Exception as e:
+                print(f"[ValueChain] 產業鏈快取讀取失敗: {e}")
+        return False
+
+    def _get_session(self):
+        s = requests.Session()
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+        s.mount('https://', HTTPAdapter(max_retries=retries))
+        return s

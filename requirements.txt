@@ -1,8 +1,0 @@
-flask
-flask-cors
-pandas
-requests
-yfinance
-scrapling
-beautifulsoup4
-lxml

@@ -207,7 +207,10 @@ def scrape_all_yahoo_classes():
         print(f"發現本地產業地圖，正在載入...")
         try:
             with open(MAP_FILE, 'r', encoding='utf-8') as f:
-                GLOBAL_STOCK_DB = json.load(f)
+                loaded_stock_db = json.load(f)
+            GLOBAL_STOCK_DB.clear()
+            GLOBAL_STOCK_DB.update(loaded_stock_db)
+            valuechain_MGR.industry_db = GLOBAL_STOCK_DB
             INIT_PROGRESS.update({"percentage": 100, "is_done": True})
             
             threading.Thread(target=initial_data_sync, daemon=True).start()
@@ -215,11 +218,14 @@ def scrape_all_yahoo_classes():
         except: print(f"讀取快取失敗")
 
     INIT_PROGRESS["status"] = "SCANNING"
+    # 🌟 修正：「上市類股」與「上櫃類股」原本共用同一個 weight_key："basic"，
+    # 會導致其中一邊的分類標籤直接覆蓋另一邊，讓 GLOBAL_STOCK_DB（後續 valuechain.py
+    # 的 run_full_update() 會拿它當 industry_db 使用）遺失「上市／上櫃」的區分。
     targets = [
         {"title": "電子產業", "weight_key": "electronics"},
         {"title": "概念股", "weight_key": "concepts"},
-        {"title": "上市類股", "weight_key": "basic"},
-        {"title": "上櫃類股", "weight_key": "basic"},
+        {"title": "上市類股", "weight_key": "basic_tse"},
+        {"title": "上櫃類股", "weight_key": "basic_otc"},
         {"title": "集團股", "weight_key": "group"}
     ]
     try:
@@ -243,7 +249,7 @@ def scrape_all_yahoo_classes():
                 cat_page = Fetcher.get(item["url"])
                 ids = re.findall(r'/quote/(\d{4})', cat_page.text)
                 for sid in list(set(ids)):
-                    if sid not in GLOBAL_STOCK_DB: GLOBAL_STOCK_DB[sid] = {"electronics": "", "concepts": "", "group": "", "basic": ""}
+                    if sid not in GLOBAL_STOCK_DB: GLOBAL_STOCK_DB[sid] = {"electronics": "", "concepts": "", "group": "", "basic_tse": "", "basic_otc": ""}
                     GLOBAL_STOCK_DB[sid][item["weight_key"]] = str(item["name"])
             except: continue
         
@@ -262,66 +268,130 @@ def run_radar_background(chip_map=None, top_sectors=None, industry_db=None, curr
         IS_RADAR_RUNNING = True
 
     try:
-        # 確保即便沒傳參數（初次啟動），內部邏輯也能運作
-        cm = chip_map if chip_map is not None else {}
-        ts = top_sectors if top_sectors is not None else []
-        db = industry_db if industry_db is not None else GLOBAL_STOCK_DB
+        # 1. 準備基礎資料 (直接使用參數，不建立多餘的中間變數)
+        cm_data = chip_map if chip_map is not None else {}
+        db_data = industry_db if industry_db is not None else GLOBAL_STOCK_DB
         
+        # 2. 獲取 Valuechain 運算結果 (從全域快取拿)
+        vc_res = None
+        if GLOBAL_DATA_CACHE and "valuechain_map" in GLOBAL_DATA_CACHE:
+            vc_res = GLOBAL_DATA_CACHE["valuechain_map"]
+        
+        # 💡 容錯處理：如果快取還沒建立，利用傳入的 top_sectors 構建一個臨時結構
+        if not vc_res and top_sectors:
+            vc_res = {"top5": [{"key": f"類別::{name}"} for name in top_sectors], "others": []}
+
         print(f"[雷達啟動] 正在掃描基準日: {current_date or '最新'} | 籌碼對齊: {'YES' if chip_map else 'NO'}")
         
-        # 執行掃描
-        results = radar_select.run_radar_scan(cm, ts, db)
+        # 🚀 3. 呼叫雷達掃描 (確保傳入對應的 4 個具名參數)
+        results = radar_select.run_radar_scan(
+            chip_map=cm_data, 
+            valuechain_result=vc_res, 
+            vc_mgr=valuechain_MGR, 
+            industry_db=db_data
+        )
         
         RADAR_RESULTS = results
         RADAR_LAST_DATE = current_date
         print("[雷達完成] 結果已更新。")
+        
     except Exception as e:
         print(f"[雷達異常]: {e}")
+        import traceback
+        traceback.print_exc() 
     finally:
         with RADAR_LOCK: IS_RADAR_RUNNING = False
 
 def initial_data_sync():
-    """ 程式啟動後，主動抓取最新籌碼，確保第一次雷達就是 YES """
+    """ 程式啟動後，主動抓取最新籌碼，若當日尚未發布則自動回退至前一交易日 """
     print("[系統初始化] 正在定錨最新日期並同步籌碼...")
     board = get_dashboard_commander()
-    anchor_date = board["date"]
     
-    if anchor_date:
+    # 🌟 初始嘗試日期 (從 Yahoo 拿到的日期)
+    target_date = board["date"]
+    
+    if not target_date:
+        print("❌ [系統失敗] 無法獲取定錨日期")
+        run_radar_background()
+        return
+
+    valid_chip_map = None
+    final_anchor_date = target_date
+
+    # 🌟 核心修正：進入最多 5 次的回退嘗試 (處理尚未發布或假日)
+    for attempt in range(5):
         try:
-            # --- 🌟 新增：在啟動雷達前，先抓取個股法人排行 ---
-            print(f"正在預抓 {anchor_date} 個股法人籌碼...")
+            print(f"📡 [預抓] 嘗試抓取 {final_anchor_date} 個股籌碼 (第 {attempt+1} 次嘗試)...")
             
-            # 1. 抓取上市排行
-            tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={anchor_date}&selectType=ALL"
+            # 抓取上市排行
+            tse_url = f"https://www.twse.com.tw/fund/T86?response=json&date={final_anchor_date}&selectType=ALL"
             tse_res = requests.get(tse_url, headers=HEADERS, timeout=20).json()
             
-            # 2. 抓取上櫃排行 (這裡日期要轉成民國)
-            d_tpex = f"{int(anchor_date[:4])-1911}/{anchor_date[4:6]}/{anchor_date[6:]}"
-            otc_url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_tpex}"
-            otc_json = requests.get(otc_url, headers=HEADERS).json()
-            
-            # 3. 組合 chip_map (簡化版，只需外資與投信)
+            # 🌟 關鍵判斷：如果證交所說日期太大，或是這天根本沒資料 (stat != 'OK')
+            if tse_res.get('stat') != 'OK' or 'data' not in tse_res:
+                print(f"  ⚠️ {final_anchor_date} 證交所尚未發布明細，往前回退一天...")
+                # 日期減一天
+                dt = datetime.strptime(final_anchor_date, "%Y%m%d") - timedelta(days=1)
+                final_anchor_date = dt.strftime("%Y%m%d")
+                continue # 重新跑下一輪迴圈
+
+            # 2. 如果上市成功，接著抓上櫃並解析
             chip_map = {}
-            if tse_res.get('data'):
-                for r in tse_res['data']:
+            for r in tse_res['data']:
+                if len(r) > 18:
                     sid = str(r[0]).strip()
                     chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[10])/1000}
-            
-            otc_rows = otc_json.get('aaData', []) or otc_json.get('data', [])
-            for r in otc_rows:
-                sid = str(r[0]).strip()
-                chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[13])/1000}
 
-            # 4. 啟動雷達 (這時 chip_map 有資料了，會顯示 YES)
-            print(f"籌碼預對齊完成 ({len(chip_map)} 檔)，啟動完整雷達...")
-            run_radar_background(chip_map=chip_map, top_sectors=[], industry_db=GLOBAL_STOCK_DB, current_date=anchor_date)
+            # 抓取上櫃排行
+            d_tpex = f"{int(final_anchor_date[:4])-1911}/{final_anchor_date[4:6]}/{final_anchor_date[6:]}"
+            otc_url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=AL&d={d_tpex}"
+            otc_res = requests.get(otc_url, headers=HEADERS, timeout=20).json()
+            
+            otc_rows = otc_res['tables'][0].get('data', []) if ('tables' in otc_res and len(otc_res['tables']) > 0) else (otc_res.get('aaData', []) or otc_res.get('data', []))
+
+            if otc_rows:
+                for r in otc_rows:
+                    if len(r) > 13:
+                        sid = str(r[0]).strip()
+                        chip_map[sid] = {"f": clean_num(r[4])/1000, "t": clean_num(r[13])/1000}
+                
+                print(f"✅ 成功定錨！使用日期: {final_anchor_date}")
+                valid_chip_map = chip_map
+                break # 成功了，跳出 5 次嘗試的迴圈
+            else:
+                # 🌟 修正：原本這裡上市成功、但上櫃回傳空值時，既沒有 break，
+                # 也沒有把 final_anchor_date 往前推一天，會導致下一輪 attempt
+                # 重複嘗試同一天，白白浪費重試次數、最後很容易 5 次都失敗。
+                print(f"  ⚠️ {final_anchor_date} 上櫃資料為空，往前回退一天...")
+                dt = datetime.strptime(final_anchor_date, "%Y%m%d") - timedelta(days=1)
+                final_anchor_date = dt.strftime("%Y%m%d")
             
         except Exception as e:
-            print(f"預抓籌碼失敗 ({e})，執行純技術面掃描...")
-            run_radar_background(chip_map={}, top_sectors=[], current_date=anchor_date)
-    else:
-        run_radar_background()
+            print(f"  ❌ 嘗試 {final_anchor_date} 時發生異常: {e}")
+            dt = datetime.strptime(final_anchor_date, "%Y%m%d") - timedelta(days=1)
+            final_anchor_date = dt.strftime("%Y%m%d")
 
+    # 🌟 最終步驟：根據「真正成功」的日期啟動任務
+    if valid_chip_map:
+        # 1. 啟動歷史補齊 (傳入真正抓到資料的那天)
+        print(f"📢 [系統] 以 {final_anchor_date} 為起點，啟動背景自動補齊...")
+        threading.Thread(
+            target=valuechain_MGR.sync_historical_data, 
+            args=(final_anchor_date,), 
+            daemon=True
+        ).start()
+        
+        # 2. 啟動雷達
+        run_radar_background(
+            chip_map=valid_chip_map, 
+            top_sectors=[], 
+            industry_db=GLOBAL_STOCK_DB, 
+            current_date=final_anchor_date
+        )
+    else:
+        print("❌ [雷達警告] 連續嘗試失敗，執行無籌碼掃描。")
+        run_radar_background()
+        
 # --- 3. 核心 API 路由 ---
 @app.route('/api/init_progress')
 def get_init_progress(): return jsonify(INIT_PROGRESS)
@@ -337,7 +407,12 @@ def get_main_data():
     if not anchor_date or int(anchor_date) < 20240101: anchor_date = datetime.now().strftime("%Y%m%d")
 
     # B. 快取檢查
-    if GLOBAL_DATA_CACHE and GLOBAL_DATA_CACHE["date"] == anchor_date: return jsonify(GLOBAL_DATA_CACHE)
+    # 🌟 修正：下面第 5 天回溯迴圈找到的實際交易日 d_twse，可能跟這裡剛算出來的 anchor_date
+    # 不同（例如今天資料還沒公布，往前抓到昨天）。之前把 GLOBAL_DATA_CACHE["date"]（存的是
+    # d_twse）拿來跟每次重新計算的 anchor_date 比對，兩者根本不是同一個變數，快取永遠對不上，
+    # 導致每次呼叫都重新打一輪外部 API。這裡改成比對「上次計算時所使用的 anchor_date」。
+    if GLOBAL_DATA_CACHE and GLOBAL_DATA_CACHE.get("anchor_date") == anchor_date:
+        return jsonify(GLOBAL_DATA_CACHE)
 
     start_dt = datetime.strptime(anchor_date, "%Y%m%d")
     for i in range(5):
@@ -382,9 +457,10 @@ def get_main_data():
             }
 
             def get_stock_profile(sid):
-                tags = GLOBAL_STOCK_DB.get(sid, {"electronics":"", "concepts":"", "group":"", "basic":""})
+                tags = GLOBAL_STOCK_DB.get(sid, {"electronics":"", "concepts":"", "group":"", "basic_tse":"", "basic_otc":""})
                 clean_tags = {k: str(v).strip() for k, v in tags.items()}
-                primary = (clean_tags.get('electronics') or clean_tags.get('concepts') or clean_tags.get('group') or clean_tags.get('basic') or "一般個股")
+                primary = (clean_tags.get('electronics') or clean_tags.get('concepts') or clean_tags.get('group')
+                           or clean_tags.get('basic_tse') or clean_tags.get('basic_otc') or "一般個股")
                 return primary, clean_tags
             
             # 注入標籤與資券
@@ -458,6 +534,9 @@ def get_main_data():
             # --- 8. 最終資料封裝 ---
             final_data = {
                 "date": str(d_twse),
+                # 🌟 修正：一併存下本次用來定錨的 anchor_date，供下次請求做快取比對用
+                # （避免跟上面的 d_twse 搞混，這是兩個不同階段的日期變數）
+                "anchor_date": anchor_date,
                 "taiex": taiex,
                 "sentiment": sentiment,
                 "valuechain_map": valuechain_result or {"resonance": [], "top5": [], "others": []},
@@ -538,20 +617,29 @@ def force_update_valuechain_map():
             IS_valuechain_RUNNING = False
 
     threading.Thread(target=run_task, daemon=True).start()
-    return jsonify({"status": "started", "message": "產業地圖同步已在背景啟動"})
+    return jsonify({"status": "started", "message": "獨立產業鏈正在重新載入"})
 
 @app.route('/api/valuechain_map')
 def get_valuechain_map_api():
     global GLOBAL_DATA_CACHE
     
-    # 1. 優先檢查 Cache 裡是否有計算過的資料 (即使是空的也算資料)
+    # 如果快取裡已經有算好的產業數據（包含 5D/20D），直接回傳
     if GLOBAL_DATA_CACHE and "valuechain_map" in GLOBAL_DATA_CACHE:
-        # 只要 key 存在，就代表計算邏輯跑過了，直接回傳
-        return jsonify(GLOBAL_DATA_CACHE["valuechain_map"])
+        # 檢查內容是否真的有 5D 數據，避免抓到舊的 0.00 快取
+        vc_data = GLOBAL_DATA_CACHE["valuechain_map"]
+        if "top5" in vc_data and len(vc_data["top5"]) > 0:
+            # 🌟 修正：valuechain.py 的 get_valuechain_industry_data() 實際回傳的欄位名稱是
+            # "inst_net_5d" / "inst_net_20d"，不是 "net_force_5d"。原本這裡的判斷條件因為
+            # key 名稱對不上，恆為 False，導致這段快取捷徑永遠不會命中，每次都被迫走下面
+            # 重新計算的分支。
+            if "inst_net_5d" in vc_data["top5"][0]:
+                # 🟢 修正：vc_data 本身就是運算結果，直接回傳它即可
+                return jsonify(vc_data)
 
-    # 2. 如果只有原料沒有成品，主動算一次
+    # 如果只有基礎數據，主動重算一次完整的歷史對齊
     if GLOBAL_DATA_CACHE and "chip_map" in GLOBAL_DATA_CACHE:
         try:
+            print("🔄 [API] 偵測到歷史數據缺口，主動發起完整產業統計...")
             hot_result = valuechain_MGR.get_valuechain_industry_data(
                 GLOBAL_DATA_CACHE["date"],
                 GLOBAL_STOCK_DB,
@@ -559,12 +647,11 @@ def get_valuechain_map_api():
                 margin_map=GLOBAL_DATA_CACHE["margin_map"]
             )
             if hot_result:
-                GLOBAL_DATA_CACHE["valuechain_map"] = hot_result # 更新快取
+                GLOBAL_DATA_CACHE["valuechain_map"] = hot_result
                 return jsonify(hot_result)
         except Exception as e:
-            print(f"❌ 主動計算失敗: {e}")
+            print(f"[API] 主動計算失敗: {e}")
 
-    # 3. 只有完全沒資料時才回傳 Loading
     return jsonify({"status": "loading", "resonance": [], "top5": [], "others": []}), 202
 
 @app.route('/api/valuechain_progress')

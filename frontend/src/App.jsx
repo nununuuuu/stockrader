@@ -5,89 +5,6 @@ import MarketMonitorPage from './pages/MarketMonitorPage';
 import { createPortal } from 'react-dom';
 
 
-const TAG_THEMES = {
-  electronics: { bg: "#e0f2fe", text: "#0369a1", border: "#bae6fd", label: "電子" },
-  concepts: { bg: "#ffedd5", text: "#c2410c", border: "#fed7aa", label: "概念" },
-  group: { bg: "#f3e8ff", text: "#7e22ce", border: "#e9d5ff", label: "集團" },
-  basic: { bg: "#f1f5f9", text: "#475569", border: "#e2e8f0", label: "類別" }
-};
-
-const formatBillion = (n) => {
-  if (n === undefined || n === null) return '0.00';
-  const val = Math.abs(n).toFixed(2);
-  return n >= 0 ? `+${val}` : `-${val}`;
-};
-
-const formatK = (n) => {
-  if (n === undefined || n === null || n === 0) return '0';
-  const absN = Math.abs(n);
-  let displayStr = "";
-  if (absN >= 10000) {
-    displayStr = (absN / 10000).toFixed(2) + " 萬";
-  } else {
-    displayStr = Math.round(absN).toLocaleString();
-  }
-  return n > 0 ? `+${displayStr}` : `-${displayStr}`;
-};
-
-const SentimentGauge = ({ score = 50 }) => {
-  const s = Math.min(Math.max(score, 0), 100);
-  const segments = [
-    { width: '25%', color: "#fca5a5", label: "極度恐懼", eng: "EXTREME FEAR" },
-    { width: '20%', color: "#fecaca", label: "恐懼", eng: "FEAR" },
-    { width: '10%', color: "#e2e8f0", label: "中立", eng: "NEUTRAL" },
-    { width: '20%', color: "#bbf7d0", label: "貪婪", eng: "GREED" },
-    { width: '25%', color: "#86efac", label: "極度貪婪", eng: "EXTREME GREED" }
-  ];
-  return (
-    <div className="w-full px-2 py-4">
-      <div className="flex w-full mb-1.5 text-[10px] font-black text-slate-500 uppercase tracking-tighter">
-        <div className="w-[25%] text-center">極度恐懼</div>
-        <div className="w-[20%] text-center">恐懼</div>
-        <div className="w-[10%] text-center">中立</div>
-        <div className="w-[20%] text-center">貪婪</div>
-        <div className="w-[25%] text-center">極度貪婪</div>
-      </div>
-      <div className="relative h-2 w-full flex rounded-full overflow-hidden border border-slate-50">
-        {segments.map((seg, i) => (
-          <div key={i} style={{ width: seg.width, backgroundColor: seg.color }} className="h-full" />
-        ))}
-      </div>
-      <div className="relative w-full h-6 mt-0.5">
-        <div className="absolute transition-all duration-1000 ease-out flex flex-col items-center" style={{ left: `${s}%`, transform: 'translateX(-50%)' }}>
-          <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-b-[7px] border-b-slate-600"></div>
-          <div className="text-xl font-black font-mono text-slate-600 leading-none mt-1">{s}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const MarginRatioGauge = ({ ratio = 0 }) => {
-  const r = parseFloat(ratio) || 0;
-  const radius = 22;
-  const circumference = radius * Math.PI;
-  const offset = circumference - (Math.min(Math.max(r / 20, 0), 1) * circumference);
-  return (
-    <div className="flex flex-col items-center justify-center">
-      <div className="relative w-24 h-14">
-        <svg viewBox="0 0 50 30" className="w-full h-full">
-          <path d="M 5 28 A 20 20 0 0 1 45 28" fill="none" stroke="#f1f5f9" strokeWidth="6" strokeLinecap="round" />
-          <path d="M 5 28 A 20 20 0 0 1 45 28" fill="none" stroke={r > 15 ? "#ef4444" : r > 8 ? "#f59e0b" : "#6366f1"} strokeWidth="6" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} className="transition-all duration-1000 ease-out" />
-          <text x="50%" y="25" textAnchor="middle" fontSize="10" fontWeight="900" fill="#1e293b" className="font-mono">{r}%</text>
-        </svg>
-      </div>
-      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest -mt-2">全市場</span>
-    </div>
-  );
-};
-
-const getVixStatus = (val) => {
-  const v = parseFloat(val);
-  if (v > 40) return { label: "恐慌", color: "bg-red-50 text-red-600 border-red-100" };
-  if (v < 15) return { label: "非理性繁榮", color: "bg-orange-50 text-orange-600 border-orange-100" };
-  return { label: "中性", color: "bg-emerald-50 text-emerald-600 border-emerald-100" };
-};
 
 const SIDEBAR_GROUPS = [
   { id: 'funds', label: '法人資金', icon: '🏛️' },
@@ -243,7 +160,7 @@ export default function App() {
                 <span className="font-mono">{data?.date ? `${data.date.slice(0, 4)}/${data.date.slice(4, 6)}/${data.date.slice(6, 8)}` : "----/--/--"}</span>
               </div>
               <button onClick={() => setExcludeETF(!excludeETF)} className={`px-5 py-1.5 text-xs font-black rounded-full border transition shadow-sm ${excludeETF ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-200 hover:border-orange-300'}`}>
-              {excludeETF ? '✕ 只顯示個股' : '□ 包含所有數據'}
+                {excludeETF ? '✕ 只顯示個股' : '□ 包含所有數據'}
               </button>
             </div>
           </div>
@@ -259,7 +176,6 @@ export default function App() {
                 valuechainData={valuechainData}
                 fetchMainData={fetchMainData}
                 fetchValuechainData={fetchValuechainData}
-                ValuechainView={ValuechainView}
               />
             )}
 
@@ -270,14 +186,6 @@ export default function App() {
                 radarData={radarData}
                 excludeETF={excludeETF}
                 fetchRadarData={fetchRadarData}
-                formatBillion={formatBillion}
-                formatK={formatK}
-                SentimentGauge={SentimentGauge}
-                MarginRatioGauge={MarginRatioGauge}
-                getVixStatus={getVixStatus}
-                RadarView={RadarView}
-                SectorView={SectorView}
-                RankingView={RankingView}
               />
             )}
           </div>
@@ -290,243 +198,6 @@ export default function App() {
 // ==========================================
 // 核心組件還原區（原本寫在 App 下方的元件們）
 // ==========================================
-function RankingView({ list, type, excludeETF, data }) {
-  const [expandedId, setExpandedId] = useState(null);
-  const Table = ({ items, isBuy, title }) => {
-    const displayItems = (items || []).filter(i => excludeETF ? !i.is_etf : true);
-    return (
-      <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 mb-8 overflow-hidden">
-        <h3 className={`font-black mb-6 text-sm uppercase tracking-widest ${isBuy ? 'text-red-500' : 'text-green-600'} flex items-center`}>
-          <span className={`w-2 h-2 rounded-full mr-2 ${isBuy ? 'bg-red-500' : 'bg-green-600'}`}></span>{title}
-        </h3>
-        <table className="w-full text-sm text-left">
-          <thead className="text-[10px] text-slate-300 font-black uppercase border-b">
-            <tr><th className="pb-4 px-2">股票名稱</th><th className="text-right pb-4 px-4 font-mono">張數</th><th className="text-right pb-4 px-2">主要類別</th></tr>
-          </thead>
-          <tbody>
-            {displayItems.slice(0, 15).map((s) => {
-              const isExpanded = expandedId === s.stock_id;
-              const mainTagType = Object.keys(TAG_THEMES).find(key => s.all_tags?.[key]?.trim() === s.category?.trim()) || 'basic';
-              const mainStyle = TAG_THEMES[mainTagType];
-              const otherTags = Object.entries(s.all_tags || {}).filter(([tKey, tName]) => tName && tName.trim() !== s.category?.trim() && TAG_THEMES[tKey]);
-              return (
-                <React.Fragment key={s.stock_id}>
-                  <tr onClick={() => setExpandedId(isExpanded ? null : s.stock_id)} className={`border-b border-slate-50 last:border-0 hover:bg-slate-50 transition cursor-pointer ${isExpanded ? 'bg-slate-50' : ''}`}>
-                    <td className="py-4 px-2 font-black text-slate-800 text-base">{s?.stock_name} <span className="text-[10px] text-slate-400 font-mono ml-1 opacity-60 font-bold uppercase">{s?.stock_id}</span></td>
-                    <td className={`text-right font-black text-lg px-4 font-mono ${isBuy ? 'text-red-500' : 'text-green-600'}`}>{formatK(s?.[type] || 0)}</td>
-                    <td className="text-right px-2"><span style={{ backgroundColor: mainStyle.bg, color: mainStyle.text, borderColor: mainStyle.border }} className="text-[10px] px-2 py-1 rounded-lg font-black border font-mono tracking-tighter shadow-sm">{s?.category || "一般個股"}</span></td>
-                  </tr>
-                  {isExpanded && (
-                    <tr className="animate-fadeIn">
-                      <td colSpan="3" className="bg-slate-50/50 px-6 py-6 border-b border-slate-100 shadow-inner">
-                        <div className="flex flex-col gap-6">
-                          <div className="flex flex-wrap gap-4">
-                            <div className="flex gap-6 bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm">
-                              {[{ k: 'foreign', l: '外資' }, { k: 'trust', l: '投信' }, { k: 'dealer', l: '自營' }].map(inst => (
-                                <div key={inst.k} className="text-center min-w-[60px]">
-                                  <p className="text-[10px] text-slate-400 font-black mb-1">{inst.l}</p>
-                                  <p className={`font-mono font-black text-xs ${s[inst.k] >= 0 ? 'text-red-500' : 'text-green-600'}`}>{formatK(s[inst.k])}</p>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="flex gap-6 bg-slate-100/50 px-5 py-3 rounded-2xl border border-slate-200 shadow-sm">
-                              <div className="text-center min-w-[60px]">
-                                <p className="text-[10px] text-slate-500 font-black mb-1">融資增減</p>
-                                <p className={`font-mono font-black text-xs ${s.margin?.f_change >= 0 ? 'text-red-500' : 'text-green-600'}`}>{formatK(s.margin?.f_change)}</p>
-                              </div>
-                              <div className="text-center min-w-[60px]">
-                                <p className="text-[10px] text-slate-500 font-black mb-1">融券增減</p>
-                                <p className={`font-mono font-black text-xs ${s.margin?.s_change >= 0 ? 'text-red-500' : 'text-green-600'}`}>{formatK(s.margin?.s_change)}</p>
-                              </div>
-                            </div>
-                          </div>
-                          {otherTags.length > 0 && (
-                            <div className="flex flex-col gap-2 pl-2 border-l-2 border-slate-200">
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">更多產業屬性</span>
-                              <div className="flex flex-wrap gap-2">
-                                {otherTags.map(([tKey, tName]) => {
-                                  const stl = TAG_THEMES[tKey];
-                                  const isvaluechain = data?.sectors?.buy?.some(sector => sector.name === tName);
-                                  return <span key={tKey} style={{ backgroundColor: stl.bg, color: stl.text, borderColor: stl.border }} className="px-2 py-1 rounded-md text-[10px] font-black shadow-sm flex items-center gap-1">{isvaluechain && <span>🔥</span>}{tName}</span>;
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fadeIn">
-      <div className="flex flex-col gap-4">
-        <Table items={list.tse_b} isBuy={true} title="上市買超 (張)" />
-        <Table items={list.otc_b} isBuy={true} title="上櫃買超 (張)" />
-      </div>
-      <div className="flex flex-col gap-4">
-        <Table items={list.tse_s} isBuy={false} title="上市賣超 (張)" />
-        <Table items={list.otc_s} isBuy={false} title="上櫃賣超 (張)" />
-      </div>
-    </div>
-  );
-}
-
-function RadarView({ data, onScanComplete }) {
-  const [activeKey, setActiveKey] = useState('steady');
-  const [progress, setProgress] = useState(0);
-  const [serverIsRunning, setServerIsRunning] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-
-  useEffect(() => {
-    if (data && !serverIsRunning && !isUpdating) return;
-    const timer = setInterval(() => {
-      fetch(`http://localhost:5000/api/radar_progress?t=${Date.now()}`)
-        .then(res => res.json())
-        .then(d => {
-          setProgress(d.progress);
-          setServerIsRunning(d.is_running);
-          if (d.progress === 100 && d.is_running === false) {
-            if (!data || isUpdating) onScanComplete();
-            setIsUpdating(false);
-            clearInterval(timer);
-          }
-        })
-        .catch(() => clearInterval(timer));
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [data, isUpdating, serverIsRunning, onScanComplete]);
-
-  const handleRefresh = async () => {
-    if (serverIsRunning || isUpdating) return;
-    setIsUpdating(true);
-    setProgress(0);
-    try {
-      await fetch('http://localhost:5000/api/radar/refresh', { method: 'POST' });
-    } catch {
-      setIsUpdating(false);
-    }
-  };
-
-  const isScanning = serverIsRunning || (isUpdating && progress < 100);
-
-  return (
-    <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 animate-fadeIn relative overflow-hidden">
-      {isScanning && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 z-10">
-          <div className="h-full bg-blue-600 transition-all duration-1000 ease-in-out shadow-[0_0_8px_rgba(37,99,235,0.5)]" style={{ width: `${Math.max(progress, 2)}%` }}></div>
-        </div>
-      )}
-      <div className="mb-6 px-5 py-3 bg-slate-50/50 rounded-2xl border border-slate-100/50 flex justify-between items-center">
-        <div className="flex items-center text-slate-400 font-bold text-[11px] tracking-tight">
-          <span className="mr-1.5">今日篩選率:</span>
-          <span className="text-blue-600 font-black text-sm font-mono">{isScanning ? "計算中..." : (data?.stats?.hit_rate || "---")}</span>
-          <span className="mx-4 opacity-20 text-slate-300">|</span>
-          <span className="mr-1.5">命中數:</span>
-          <span className="text-slate-700 font-black font-mono">{isScanning ? "--" : (data?.stats?.hit_count || 0)}</span>
-          <span className="text-slate-400 mx-1">/</span>
-          <span className="text-slate-400 font-mono">{isScanning ? "1975" : (data?.stats?.total_count || "---")}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm transition-all ${isScanning ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200/50'}`}>
-            <span className="relative flex h-2 w-2">
-              <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isScanning ? 'animate-ping bg-blue-400' : 'bg-emerald-400'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${isScanning ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
-            </span>
-            <span className={`text-[10px] font-black tracking-tighter ${isScanning ? 'text-blue-600' : 'text-emerald-700'}`}>{isScanning ? `實時價格掃描中 ${progress}%` : '訊號實時監控中'}</span>
-          </div>
-          <div className="font-mono text-[10px] text-slate-400 font-bold opacity-60">{isScanning ? "SYNCING..." : (data?.stats?.scan_time || "---")}</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-4 mb-8 overflow-x-auto pb-2">
-        {[{ id: 'first_break', l: '首日突破' }, { id: 'steady', l: '縮量站穩' }, { id: 'momentum', l: '動能噴發' }].map(g => (
-          <button key={g.id} onClick={() => setActiveKey(g.id)} className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeKey === g.id ? 'bg-slate-800 text-white shadow-lg scale-105' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>
-            {g.l} ({isScanning ? "-" : (data?.groups?.[g.id]?.length || 0)})
-          </button>
-        ))}
-        <button onClick={handleRefresh} disabled={isScanning} className="ml-auto flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 transition-all bg-blue-50/50 hover:bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm disabled:opacity-30">
-          <svg className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          {isScanning ? '正在更新' : '刷新實時價格'}
-        </button>
-      </div>
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${isScanning && data ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
-        {!data && isScanning ? <div className="col-span-full py-40 text-center text-slate-300 font-black animate-pulse">正在進行數據掃描...</div> :
-          data?.groups?.[activeKey]?.map((item, i) => (
-            <div key={i} className={`bg-slate-50 rounded-[30px] p-6 transition-all hover:shadow-lg border ${item.is_limit_up ? 'border-[3px] border-red-400 shadow-[0_0_15px_-3px_rgba(248,113,113,0.2)]' : 'border-slate-100'}`}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-baseline gap-2">
-                  <h4 className="text-2xl font-black text-slate-800 tracking-tighter">{item.name}</h4>
-                  <span className="text-slate-400 text-sm font-mono opacity-60 uppercase font-bold">{item.stock_id}</span>
-                  {item.state_key !== 'first_break' && item.break_count > 1 && <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded border border-indigo-100 leading-none">D{item.break_count}</span>}
-                </div>
-                <div className="flex items-center">
-                  {item.is_disposition && <span className="mr-2 inline-flex items-center justify-center bg-yellow-400 text-black px-2 h-5 rounded-md text-[10px] font-black leading-none shadow-sm ring-1 ring-yellow-500/30">處置</span>}
-                  <span className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-black tracking-tight font-mono shadow-sm">price:{item.price}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mb-4">
-                {item.chip_tag && <span className={`px-2 py-1 rounded-md text-[10px] font-black border shadow-sm transition-all ${item.chip_tag.includes('🔥') ? 'bg-orange-50 text-orange-600 border-orange-100' : item.chip_tag.includes('🔴') ? 'bg-red-50 text-red-600 border-red-100' : item.chip_tag.includes('🌊') ? 'bg-blue-50 text-blue-600 border-blue-100' : item.chip_tag.includes('💎') ? 'bg-purple-50 text-purple-600 border-purple-100' : item.chip_tag.includes('⚓') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-white text-slate-500 border-slate-200'}`}>{item.chip_tag}</span>}
-                {item.money_label && <span className="text-[12px] font-black text-purple-600 ml-1">{item.money_label}</span>}
-              </div>
-              <pre className="text-[12px] font-sans text-slate-600 bg-white p-5 rounded-2xl border border-slate-50 whitespace-pre-wrap leading-relaxed shadow-sm font-bold">{item.full_text}</pre>
-            </div>
-          ))
-        }
-      </div>
-    </div>
-  );
-}
-
-function SectorView({ data }) {
-  const [expandedSector, setExpandedSector] = useState(null);
-  const Row = ({ item, isBuy, rank }) => {
-    const theme = TAG_THEMES[item.tag_type] || TAG_THEMES.basic;
-    return (
-      <React.Fragment>
-        <div className="border-b border-slate-50 last:border-0">
-          <div onClick={() => setExpandedSector(expandedSector === item.name ? null : item.name)} className="flex justify-between items-center py-5 hover:bg-slate-50 px-3 rounded-2xl cursor-pointer transition">
-            <div className="flex gap-5 items-center">
-              <span className="text-slate-200 font-black italic text-2xl w-8">{rank}.</span>
-              <div>
-                <div className="font-black text-xl mb-0.5" style={{ color: theme.text }}>{item?.name}</div>
-                <div className="text-[11px] text-slate-400 font-bold tracking-tight opacity-70">外 {formatK(item.foreign)} / 信 {formatK(item.trust)} / 自 {formatK(item.dealer)} (張)</div>
-              </div>
-            </div>
-            <div className={`font-black text-xl ${isBuy ? 'text-red-500' : 'text-green-600'}`}>{formatK(item.total)}</div>
-          </div>
-          {expandedSector === item.name && item.top_components && (
-            <div className="px-14 pb-5 grid grid-cols-1 gap-1 animate-fadeIn">
-              {item.top_components.map((c, idx) => (
-                <div key={idx} className="flex justify-between text-xs py-2 border-l-2 border-slate-100 pl-4">
-                  <span className="font-bold text-slate-600">{c.stock_name}</span>
-                  <span className={`font-black ${c.total >= 0 ? 'text-red-500' : 'text-green-600'}`}>{formatK(c.total)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </React.Fragment>
-    );
-  };
-  return (
-    <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border grid grid-cols-1 lg:grid-cols-2 gap-20 animate-fadeIn">
-      <div>
-        <h3 className="text-red-500 font-black mb-8 text-xs border-b-2 border-red-50 pb-3 uppercase tracking-widest flex items-center"><span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span>法人買超族群 (張)</h3>
-        {data?.buy?.length > 0 ? data.buy.map((item, i) => <Row key={i} item={item} isBuy={true} rank={i + 1} />) : <p className="py-20 text-center text-slate-300 font-bold italic uppercase tracking-widest">No sector data</p>}
-      </div>
-      <div>
-        <h3 className="text-green-600 font-black mb-8 text-xs border-b-2 border-green-50 pb-3 uppercase tracking-widest flex items-center"><span className="w-2 h-2 rounded-full bg-green-600 mr-2"></span>法人賣超族群 (張)</h3>
-        {data?.sell?.length > 0 ? data.sell.map((item, i) => <Row key={i} item={item} isBuy={false} rank={i + 1} />) : <p className="py-20 text-center text-slate-300 font-bold italic uppercase tracking-widest">No sector data</p>}
-      </div>
-    </div>
-  );
-}
 
 function ValuechainView({ data, onUpdateComplete }) {
   // 1. 統一狀態管理
@@ -581,7 +252,7 @@ function ValuechainView({ data, onUpdateComplete }) {
     setValuechainProgress(0);
     setMsg("正在啟動背景同步任務...");
     try {
-      await fetch("http://localhost:5000/api/admin/update_valuechain", { method: 'POST' });
+      await fetch("http://localhost:5000/api/admin/update_valuechain_map", { method: 'POST' });
     } catch {
       setIsSyncing(false);
     }
@@ -724,29 +395,102 @@ function ValuechainView({ data, onUpdateComplete }) {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className={`absolute inset-0 bg-slate-950/20 ${isDrawerClosing ? 'valuechain-backdrop-out' : 'valuechain-backdrop-in'}`} onClick={closeIndustryDrawer}></div>
           <aside className={`relative h-full w-full max-w-[410px] bg-white shadow-[-14px_0_34px_rgba(15,23,42,0.12)] border-l border-slate-200 flex flex-col ${isDrawerClosing ? 'valuechain-drawer-out' : 'valuechain-drawer-in'}`}>
-            <header className="px-5 py-4 border-b border-slate-100 bg-white">
+            <header className="px-5 py-5 border-b border-slate-100 bg-white">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-black text-slate-400 tracking-widest">{selectedIndustry.main}</p>
-                  <h3 className="text-xl font-black text-slate-900 leading-tight mt-1">{selectedIndustry.name}</h3>
+                  <p className="text-[11px] font-black text-slate-400 tracking-widest uppercase">{selectedIndustry.main}</p>
+                  <h3 className="text-2xl font-black text-slate-900 leading-tight mt-1">{selectedIndustry.name}</h3>
                   <p className="text-xs font-bold text-slate-400 mt-1 line-clamp-2">{selectedIndustry.path}</p>
                 </div>
-                <button onClick={closeIndustryDrawer} className="shrink-0 w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-slate-50 font-black">×</button>
+                <button onClick={closeIndustryDrawer} className="shrink-0 w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-slate-50 font-black text-xl">×</button>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-4">
-                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400">金流占比</p>
-                  <p className="text-base font-black text-slate-900">{Number(selectedIndustry.flow || 0).toFixed(2)}%</p>
+
+              {/* 1. 保留資金力道，移除其他方塊 */}
+              <div className="mt-6">
+                <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 mb-5">
+                  <span className="text-sm font-black text-slate-500">資金力道</span>
+                  <span className={`text-2xl font-black ${(selectedIndustry.net_force || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                    {formatSigned(selectedIndustry.net_force, '億')}
+                  </span>
                 </div>
-                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400">平均漲跌</p>
-                  <p className={`text-base font-black ${(selectedIndustry.change || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(selectedIndustry.change, '%')}</p>
-                </div>
-                <div className="rounded-md bg-slate-50/80 p-2.5 border border-slate-100">
-                  <p className="text-[10px] font-black text-slate-400">資金力道</p>
-                  <p className={`text-base font-black ${(selectedIndustry.net_force || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatSigned(selectedIndustry.net_force, '億')}</p>
+
+                {/* 2. 新增像 Tide 一樣的產業彙整清單 */}
+                <div className="space-y-3 px-1">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-slate-500">當日法人淨買超</span>
+                    <span className={`font-black ${(selectedIndustry.net_force || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                      {formatSigned(selectedIndustry.net_force, '億')}
+                    </span>
+                  </div>
+
+                  {/* 註：以下欄位 net_force_5d, net_force_20d, inflow_streak 需要後端 API 提供，若目前沒有可先用 placeholder 或 0 */}
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-slate-500">近 5 日法人淨買超</span>
+                    <span className={`font-black ${(selectedIndustry.inst_net_5d || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                      {formatSigned(selectedIndustry.inst_net_5d || 0, '億')}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-slate-500">近 20 日累計</span>
+                    <span className={`font-black ${(selectedIndustry.inst_net_20d || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                      {formatSigned(selectedIndustry.inst_net_20d || 0, '億')}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-slate-500">近 5 日漲跌</span>
+                    <span className={`font-black ${(selectedIndustry.change_5d || 0) >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                      {formatSigned(selectedIndustry.change_5d || 0, '%')}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm border-t border-slate-50 pt-2">
+                    <span className="font-bold text-slate-500">資金停留</span>
+                    <div className="text-right">
+                      {(() => {
+                        // 假設後端傳來的欄位
+                        const streak = selectedIndustry.inflow_streak || 0; // 正數代表流入，負數代表流出
+                        const accel = selectedIndustry.accel || 0;         // 正數代表趨勢向上(買盤強/賣盤縮)，負數代表趨勢向下
+
+                        const isInflow = streak >= 0;
+                        const isTrendUp = accel >= 0;
+
+                        // 1. 定義主狀態文字與顏色 (流入/流出)
+                        const mainText = isInflow ? "流入" : "流出";
+                        const mainColor = isInflow ? "text-red-500" : "text-emerald-600";
+
+                        // 2. 定義趨勢細節 (加速/放緩) 矩陣判斷
+                        let detailText = "";
+                        let detailColor = "";
+                        let arrow = isTrendUp ? "↑" : "↓";
+
+                        if (isInflow) {
+                          // 處於流入狀態時
+                          detailText = isTrendUp ? "流入加速" : "流入放緩";
+                          detailColor = isTrendUp ? "text-red-400" : "text-emerald-400";
+                        } else {
+                          // 處於流出狀態時
+                          detailText = isTrendUp ? "流出放緩" : "流出加速";
+                          detailColor = isTrendUp ? "text-red-400" : "text-emerald-400";
+                        }
+
+                        return (
+                          <>
+                            <span className={`font-black ${mainColor}`}>
+                              資金連續{mainText} {Math.abs(streak)} 天
+                            </span>
+                            <span className={`ml-2 text-[10px] font-bold ${detailColor}`}>
+                              {arrow} {detailText}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </div>
               </div>
+              <p className="text-[9px] text-slate-300 font-bold text-right mt-4 uppercase tracking-tighter">金額以最新收盤價估算</p>
             </header>
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-sm">
